@@ -8,7 +8,7 @@ summary: 通过命令与参数操作程序的文本界面；agent 与开发者�
 related: [tool-bash, environment-variable]
 appearsIn: [timeline.tool.bash]
 quiz:
-  - q: `pixelweb --opencode http://x:1` 中 `--opencode` 是？
+  - q: "`pixelweb --opencode http://x:1` 中 `--opencode` 是？"
     options: [子命令, 标志/选项, 环境变量, 文件名]
     answer: 1
 sources:

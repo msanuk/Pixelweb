@@ -29,7 +29,9 @@ export function Timeline() {
   const loading = useStore((s) => (sessionID ? s.loadingMessages[sessionID] : false));
   const status = useStore((s) => (sessionID ? s.status[sessionID] : undefined));
   const todos = useStore((s) => (sessionID ? s.todos[sessionID] : undefined));
-  const permissions = useStore((s) => s.permissions.filter((p) => p.sessionID === sessionID));
+  const allPermissions = useStore((s) => s.permissions);
+  // selectors must return stable references (useSyncExternalStore); derive filtered lists with useMemo
+  const permissions = useMemo(() => allPermissions.filter((p) => p.sessionID === sessionID), [allPermissions, sessionID]);
   const isTeaching = useStore((s) => (sessionID ? s.teachingSessions.has(sessionID) : false));
   const bottomRef = useRef<HTMLDivElement>(null);
   const [follow, setFollow] = useState(true);

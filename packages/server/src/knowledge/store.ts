@@ -78,11 +78,14 @@ export function toIndexEntry(c: KnowledgeCard): KnowledgeIndexEntry {
 
 export class KnowledgeStore {
   private cards = new Map<string, KnowledgeCard>();
+  /** Cards that failed to parse on the last load, for /api/knowledge/reload and logs. */
+  errors: { file: string; message: string }[] = [];
 
   constructor(private readonly dirs: string[]) {}
 
   async load(): Promise<void> {
     const next = new Map<string, KnowledgeCard>();
+    this.errors = [];
     for (const dir of this.dirs) {
       let entries: string[];
       try {
@@ -91,10 +94,17 @@ export class KnowledgeStore {
         continue;
       }
       for (const name of entries) {
-        if (!name.endsWith('.md')) continue;
-        const raw = await fs.readFile(path.join(dir, name), 'utf8');
-        const card = parseCard(raw, name.replace(/\.md$/, ''));
-        next.set(card.id, card); // later dirs (user overrides) win
+        if (!name.endsWith('.md') || name.toLowerCase() === 'readme.md') continue;
+        const file = path.join(dir, name);
+        try {
+          const raw = await fs.readFile(file, 'utf8');
+          const card = parseCard(raw, name.replace(/\.md$/, ''));
+          next.set(card.id, card); // later dirs (user overrides) win
+        } catch (e) {
+          // one malformed card must never take the whole workbench down
+          this.errors.push({ file, message: e instanceof Error ? e.message.split('\n')[0] : String(e) });
+          console.warn(`[pixelweb] skipping knowledge card ${file}: ${e instanceof Error ? e.message.split('\n')[0] : e}`);
+        }
       }
     }
     this.cards = next;

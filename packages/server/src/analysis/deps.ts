@@ -55,8 +55,23 @@ export function extractPyImports(source: string): string[] {
 
 // ---- Resolution --------------------------------------------------------------
 
-export function resolveJs(fromFile: string, spec: string, files: Set<string>): string | null {
-  if (!spec.startsWith('.') && !spec.startsWith('/')) return null; // bare → external
+/** name → entry file (repo-relative) for workspace packages, e.g. "@pixelweb/shared" → "packages/shared/src/index.ts" */
+export type WorkspaceMap = Map<string, string>;
+
+export function resolveJs(fromFile: string, spec: string, files: Set<string>, workspaces?: WorkspaceMap): string | null {
+  if (!spec.startsWith('.') && !spec.startsWith('/')) {
+    // workspace package (monorepo) → its entry file
+    if (workspaces) {
+      const hit = [...workspaces.keys()].find((name) => spec === name || spec.startsWith(name + '/'));
+      if (hit) {
+        if (spec === hit) return files.has(workspaces.get(hit)!) ? workspaces.get(hit)! : null;
+        const sub = spec.slice(hit.length + 1);
+        const pkgDir = workspaces.get(hit)!.split('/').slice(0, 2).join('/');
+        return resolveJs(pkgDir + '/package.json', './' + sub, files) ?? resolveJs(pkgDir + '/package.json', './src/' + sub, files);
+      }
+    }
+    return null; // bare → external
+  }
   const clean = spec.replace(/\?.*$/, '');
   const base = path.posix.normalize(path.posix.join(path.posix.dirname(fromFile), clean));
   const candidates = [base];
@@ -147,6 +162,8 @@ export async function analyseProject(root: string, opts: AnalyseOptions = {}): P
   const edges = new Map<string, ArchEdge>();
   const externals = new Map<string, number>();
   let imports = 0;
+  let skippedGenerated = 0;
+  const workspaces = await loadWorkspaces(root, fileSet);
 
   const addEdge = (s: string, t: string) => {
     if (s === t) return;
@@ -165,14 +182,19 @@ export async function analyseProject(root: string, opts: AnalyseOptions = {}): P
     } catch {
       continue;
     }
-    loc.set(file, src.split('\n').length);
+    const lineCount = src.split('\n').length;
+    if (isGenerated(src, lineCount)) {
+      skippedGenerated++;
+      continue;
+    }
+    loc.set(file, lineCount);
     const lang = languageOf(file);
     const specs = lang === 'py' ? extractPyImports(src) : extractJsImports(src);
     for (const spec of specs) {
       imports++;
-      const target = lang === 'py' ? resolvePy(file, spec, fileSet) : resolveJs(file, spec, fileSet);
+      const target = lang === 'py' ? resolvePy(file, spec, fileSet) : resolveJs(file, spec, fileSet, workspaces);
       if (target) addEdge(groupOf(file), groupOf(target));
-      else if (lang === 'py' && spec.startsWith('.')) continue; // unresolved relative → ignore
+      else if (spec.startsWith('.') || spec.startsWith('/')) continue; // unresolved relative (css, json, images…) → not a dependency edge
       else {
         const name = externalName(spec, lang);
         externals.set(name, (externals.get(name) ?? 0) + 1);
@@ -184,6 +206,7 @@ export async function analyseProject(root: string, opts: AnalyseOptions = {}): P
   // nodes
   const nodes = new Map<string, ArchNode>();
   for (const file of files) {
+    if (!loc.has(file)) continue; // skipped as generated
     const id = groupOf(file);
     const n = nodes.get(id);
     if (n) {
@@ -216,8 +239,66 @@ export async function analyseProject(root: string, opts: AnalyseOptions = {}): P
     nodes: [...nodes.values()],
     edges: finalEdges,
     generatedAt: Date.now(),
-    stats: { files: files.length, imports, externals: externals.size, skipped },
+    stats: { files: files.length - skippedGenerated, imports, externals: externals.size, skipped: skipped + skippedGenerated },
   };
+}
+
+/** Minified bundles and other generated blobs: very few, very long lines. Not worth a node. */
+export function isGenerated(src: string, lineCount: number): boolean {
+  if (src.length < 20_000) return false;
+  return src.length / Math.max(lineCount, 1) > 400;
+}
+
+/** Reads package.json of every workspace package and maps its name to a source entry file. */
+export async function loadWorkspaces(root: string, files: Set<string>): Promise<WorkspaceMap> {
+  const map: WorkspaceMap = new Map();
+  let rootPkg: { workspaces?: string[] | { packages?: string[] } } | null = null;
+  try {
+    rootPkg = JSON.parse(await fs.readFile(path.join(root, 'package.json'), 'utf8'));
+  } catch {
+    return map;
+  }
+  const patterns = Array.isArray(rootPkg?.workspaces) ? rootPkg.workspaces : rootPkg?.workspaces?.packages ?? [];
+  for (const pattern of patterns) {
+    const base = pattern.replace(/\/?\*+$/, '');
+    let dirs: string[] = [];
+    try {
+      dirs = pattern.endsWith('*')
+        ? (await fs.readdir(path.join(root, base), { withFileTypes: true })).filter((d) => d.isDirectory()).map((d) => path.posix.join(base, d.name))
+        : [base];
+    } catch {
+      continue;
+    }
+    for (const dir of dirs) {
+      try {
+        const pkg = JSON.parse(await fs.readFile(path.join(root, dir, 'package.json'), 'utf8')) as {
+          name?: string;
+          main?: string;
+          types?: string;
+          exports?: string | Record<string, string | Record<string, string>>;
+        };
+        if (!pkg.name) continue;
+        const candidates: string[] = [];
+        const dot = typeof pkg.exports === 'string' ? pkg.exports : pkg.exports?.['.'];
+        if (typeof dot === 'string') candidates.push(dot);
+        else if (dot && typeof dot === 'object') candidates.push(...Object.values(dot).filter((v): v is string => typeof v === 'string'));
+        if (pkg.types) candidates.push(pkg.types);
+        if (pkg.main) candidates.push(pkg.main);
+        candidates.push('src/index.ts', 'src/index.tsx', 'index.ts', 'src/main.ts');
+        for (const c of candidates) {
+          const rel = path.posix.normalize(path.posix.join(dir, c));
+          const resolved = files.has(rel) ? rel : resolveJs(dir + '/package.json', './' + path.posix.relative(dir, rel), files);
+          if (resolved) {
+            map.set(pkg.name, resolved);
+            break;
+          }
+        }
+      } catch {
+        /* not a package */
+      }
+    }
+  }
+  return map;
 }
 
 export function dirGroup(file: string, depth: number): string {

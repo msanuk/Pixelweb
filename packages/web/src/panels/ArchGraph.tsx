@@ -111,7 +111,7 @@ export function ArchGraph() {
               </button>
             </>
           )}
-          {graph.stats.skipped > 0 && <span className="muted"> · 已跳过 {graph.stats.skipped} 个文件（超出上限）</span>}
+          {graph.stats.skipped > 0 && <span className="muted"> · 已跳过 {graph.stats.skipped} 个生成或超限文件</span>}
         </div>
         <div className="actions">
           <label>

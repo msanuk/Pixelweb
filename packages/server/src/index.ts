@@ -86,7 +86,7 @@ async function main(): Promise<void> {
   const publicDir = path.join(PKG_ROOT, 'public');
   const hasUi = fs.existsSync(path.join(publicDir, 'index.html'));
   if (hasUi) {
-    await app.register(fastifyStatic, { root: publicDir, prefix: '/', wildcard: false });
+    await app.register(fastifyStatic, { root: publicDir, prefix: '/' }); // wildcard: files resolved per request, so a rebuild needs no restart
     app.setNotFoundHandler((req, reply) => {
       if (req.raw.url?.startsWith('/api') || req.raw.url?.startsWith('/ws')) return reply.code(404).send({ error: 'not found' });
       return reply.sendFile('index.html');
@@ -181,7 +181,7 @@ async function main(): Promise<void> {
   });
   app.post('/api/knowledge/reload', async () => {
     await knowledge.load();
-    return { count: knowledge.all().length };
+    return { count: knowledge.all().length, errors: knowledge.errors };
   });
 
   // -- learning records

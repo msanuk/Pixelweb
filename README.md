@@ -42,8 +42,9 @@ node packages/server/dist/index.js --project ~/your-project
 ```bash
 npm install
 npm run dev            # 同时启动后端 (7420, tsx watch) 与前端 (5173, vite, 代理 /api 与 /ws)
+npm run dev:mock       # 没有 opencode 时：一个假的 opencode serve（4096），带示例会话并会流式回复
 npm run typecheck
-npm test               # vitest：git 解析、依赖分析、知识卡片
+npm test               # vitest：git 解析、依赖分析、知识卡片（每张卡片都会被解析校验）
 ```
 
 ## 架构

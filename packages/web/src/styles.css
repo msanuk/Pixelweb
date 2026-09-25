@@ -79,7 +79,6 @@ h2, h3, h4, h5 { margin: 0.4em 0; }
 .session-item { display: grid; grid-template-columns: 10px 1fr; column-gap: 8px; padding: 6px 10px; cursor: pointer; border-left: 3px solid transparent; }
 .session-item:hover { background: var(--panel-2); }
 .session-item.selected { background: var(--accent-soft); border-left-color: var(--accent); }
-.session-item.teach .title::before { content: "📖 "; }
 .session-item .title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .session-item .small { grid-column: 2; }
 .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--border); margin-top: 5px; }

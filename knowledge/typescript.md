@@ -8,7 +8,7 @@ summary: 给 JavaScript 加静态类型的语言；编译期发现错误，也�
 related: [module, sdk]
 appearsIn: [arch.node]
 quiz:
-  - q: `npm run typecheck` 失败意味着？
+  - q: "`npm run typecheck` 失败意味着？"
     options: [程序一定跑不起来, 存在类型不一致，可能是 bug, 网络问题, 需要重装]
     answer: 1
 sources:
