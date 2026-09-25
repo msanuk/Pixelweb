@@ -13,6 +13,16 @@ PixelWeb 本身不是 agent。它连接并监听 [OpenCode](https://opencode.ai)
 
 界面里任何出现过的术语都会带虚线下划线，点一下就是卡片。卡片底部的「📖 让 OpenCode 结合项目深入解释」会开一个**只读的教学 session**（自带教学系统提示、禁用写文件与 shell），结合你当前项目往深一层讲，并以一道检索练习收尾——这部分教学法参考了 Matt Pocock 的 [`teach` skill](https://github.com/mattpocock/skills)。
 
+## 截图
+
+| 时间线 + 概念卡片 | 架构依赖图 |
+| --- | --- |
+| ![timeline](docs/screenshots/timeline-card.png) | ![arch](docs/screenshots/arch.png) |
+
+| Git 分支图 | 知识库 |
+| --- | --- |
+| ![git](docs/screenshots/git.png) | ![knowledge](docs/screenshots/knowledge.png) |
+
 ## 快速开始
 
 ```bash
