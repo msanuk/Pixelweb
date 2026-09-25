@@ -1,0 +1,21 @@
+{
+  "name": "pixelweb",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A visual, teaching-oriented workbench that sits on top of coding agents such as OpenCode.",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace=@pixelweb/server & npm run dev --workspace=@pixelweb/web & wait",
+    "dev:server": "npm run dev --workspace=@pixelweb/server",
+    "dev:web": "npm run dev --workspace=@pixelweb/web",
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "start": "node packages/server/dist/index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

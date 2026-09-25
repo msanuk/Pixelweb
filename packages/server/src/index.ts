@@ -1,0 +1,249 @@
+#!/usr/bin/env node
+import path from 'node:path';
+import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import Fastify from 'fastify';
+import cors from '@fastify/cors';
+import fastifyStatic from '@fastify/static';
+import websocket from '@fastify/websocket';
+import type { ClientMessage, ExplainRequest, ExplainResponse, ServerInfo, ServerMessage } from '@pixelweb/shared';
+import { loadConfig, printUsage } from './config.js';
+import { OpencodeClient, type GlobalEvent } from './opencode/client.js';
+import { Hub } from './ws.js';
+import { GitService } from './git/service.js';
+import { analyseProject } from './analysis/deps.js';
+import { KnowledgeStore } from './knowledge/store.js';
+import { LearningStore } from './knowledge/learning.js';
+import { TEACHING_SYSTEM_PROMPT, TEACHING_TOOLS, buildExplainPrompt, teachingSessionTitle } from './knowledge/explain.js';
+
+const VERSION = '0.1.0';
+const here = path.dirname(fileURLToPath(import.meta.url));
+// dist/index.js → package root is one up; src/index.ts (tsx) → also one up.
+const PKG_ROOT = path.resolve(here, '..');
+const REPO_ROOT = path.resolve(PKG_ROOT, '..', '..');
+
+async function main(): Promise<void> {
+  if (process.argv.includes('--help') || process.argv.includes('-h')) {
+    printUsage();
+    return;
+  }
+  const cfg = loadConfig();
+
+  // ---- services --------------------------------------------------------------
+  const hub = new Hub();
+  const opencode = new OpencodeClient({
+    baseUrl: cfg.opencodeUrl,
+    password: cfg.opencodePassword,
+    directory: cfg.projectRoot,
+    verbose: cfg.verbose,
+  });
+  const gitSvc = new GitService(cfg.projectRoot);
+  const knowledge = new KnowledgeStore([
+    path.join(REPO_ROOT, 'knowledge'),
+    path.join(cfg.dataDir, 'knowledge'), // user-authored overrides
+    path.join(cfg.projectRoot, '.pixelweb', 'knowledge'), // project-specific cards
+  ]);
+  const learning = new LearningStore(cfg.dataDir);
+  const teachingSessions = new Set<string>();
+  let archCache: Awaited<ReturnType<typeof analyseProject>> | null = null;
+  let archLevel: 'file' | 'dir' = 'dir';
+
+  await Promise.all([knowledge.load(), learning.load()]);
+
+  const refreshArch = async (level = archLevel) => {
+    archLevel = level;
+    archCache = await analyseProject(cfg.projectRoot, { level });
+    hub.broadcast({ type: 'arch.graph', graph: archCache });
+    return archCache;
+  };
+
+  // ---- wiring ----------------------------------------------------------------
+  opencode.on('status', (s: { connected: boolean; error?: string }) => {
+    hub.broadcast({ type: 'opencode.status', ...s });
+    if (s.connected) console.log(`[pixelweb] connected to opencode at ${cfg.opencodeUrl}`);
+    else if (s.error) console.log(`[pixelweb] opencode unreachable (${s.error}); retrying…`);
+  });
+  opencode.on('event', (ev: GlobalEvent) => {
+    hub.broadcast({ type: 'opencode.event', event: ev.payload, directory: ev.directory, receivedAt: Date.now() });
+    const t = ev.payload.type;
+    if (t === 'file.edited' || t === 'file.watcher.updated' || t === 'session.idle' || t === 'vcs.branch.updated') {
+      gitSvc.scheduleRefresh(400);
+    }
+    if (t === 'session.idle' || t === 'file.edited') {
+      clearTimeout(archTimer);
+      archTimer = setTimeout(() => void refreshArch().catch(() => {}), 1500);
+    }
+  });
+  let archTimer: NodeJS.Timeout | undefined;
+  gitSvc.on('snapshot', (snapshot) => hub.broadcast({ type: 'git.snapshot', snapshot }));
+  gitSvc.on('error', (e) => console.warn('[pixelweb] git:', e instanceof Error ? e.message : e));
+
+  // ---- http -------------------------------------------------------------------
+  const app = Fastify({ logger: false });
+  await app.register(cors, { origin: true });
+  await app.register(websocket);
+
+  const publicDir = path.join(PKG_ROOT, 'public');
+  const hasUi = fs.existsSync(path.join(publicDir, 'index.html'));
+  if (hasUi) {
+    await app.register(fastifyStatic, { root: publicDir, prefix: '/', wildcard: false });
+    app.setNotFoundHandler((req, reply) => {
+      if (req.raw.url?.startsWith('/api') || req.raw.url?.startsWith('/ws')) return reply.code(404).send({ error: 'not found' });
+      return reply.sendFile('index.html');
+    });
+  }
+
+  app.get('/ws', { websocket: true }, (socket) => {
+    hub.add(socket, (raw) => {
+      let msg: ClientMessage;
+      try {
+        msg = JSON.parse(raw);
+      } catch {
+        return;
+      }
+      if (msg.type === 'git.refresh') void gitSvc.refresh().catch(() => {});
+      if (msg.type === 'arch.refresh') void refreshArch(msg.level ?? archLevel).catch(() => {});
+    });
+    const send = (m: ServerMessage) => hub.send(socket, m);
+    send({ type: 'hello', server: { version: VERSION, opencodeUrl: cfg.opencodeUrl, projectRoot: cfg.projectRoot } });
+    send({ type: 'opencode.status', connected: opencode.isConnected });
+    if (gitSvc.current) send({ type: 'git.snapshot', snapshot: gitSvc.current });
+    if (archCache) send({ type: 'arch.graph', graph: archCache });
+    send({ type: 'learning.state', state: learning.get() });
+  });
+
+  app.get('/api/info', async (): Promise<ServerInfo> => ({
+    version: VERSION,
+    opencodeUrl: cfg.opencodeUrl,
+    projectRoot: cfg.projectRoot,
+    opencodeConnected: opencode.isConnected,
+    teachingSessions: [...teachingSessions],
+  }));
+
+  // -- opencode proxy (the UI never talks to opencode directly: one origin, one auth)
+  app.get('/api/sessions', async (_req, reply) => {
+    try {
+      const sessions = await opencode.listSessions();
+      return sessions.sort((a, b) => b.time.updated - a.time.updated);
+    } catch (e) {
+      return reply.code(502).send({ error: String(e instanceof Error ? e.message : e) });
+    }
+  });
+  app.get<{ Params: { id: string } }>('/api/sessions/:id/messages', async (req, reply) => {
+    try {
+      return await opencode.messages(req.params.id);
+    } catch (e) {
+      return reply.code(502).send({ error: String(e instanceof Error ? e.message : e) });
+    }
+  });
+  app.post<{ Params: { id: string } }>('/api/sessions/:id/abort', async (req, reply) => {
+    try {
+      return await opencode.abortSession(req.params.id);
+    } catch (e) {
+      return reply.code(502).send({ error: String(e instanceof Error ? e.message : e) });
+    }
+  });
+  app.post<{ Params: { id: string }; Body: { text: string } }>('/api/sessions/:id/prompt', async (req, reply) => {
+    const text = req.body?.text?.trim();
+    if (!text) return reply.code(400).send({ error: 'text required' });
+    try {
+      await opencode.promptAsync(req.params.id, {
+        parts: [{ type: 'text', text }],
+        ...(teachingSessions.has(req.params.id) ? { system: TEACHING_SYSTEM_PROMPT, tools: TEACHING_TOOLS } : {}),
+      });
+      return { ok: true };
+    } catch (e) {
+      return reply.code(502).send({ error: String(e instanceof Error ? e.message : e) });
+    }
+  });
+
+  // -- git / architecture
+  app.get('/api/git', async () => gitSvc.current ?? (await gitSvc.refresh()));
+  app.get<{ Querystring: { level?: 'file' | 'dir'; refresh?: string } }>('/api/arch', async (req) => {
+    const level = req.query.level ?? archLevel;
+    if (archCache && level === archLevel && !req.query.refresh) return archCache;
+    return refreshArch(level);
+  });
+
+  // -- knowledge
+  app.get('/api/knowledge', async () => knowledge.index());
+  app.get('/api/knowledge/terms', async () => knowledge.terms());
+  app.get<{ Querystring: { q?: string } }>('/api/knowledge/search', async (req) => knowledge.search(req.query.q ?? ''));
+  app.get<{ Params: { id: string } }>('/api/knowledge/:id', async (req, reply) => {
+    const card = knowledge.get(req.params.id) ?? knowledge.find(req.params.id);
+    if (!card) return reply.code(404).send({ error: 'no such card' });
+    return card;
+  });
+  app.get<{ Params: { tool: string } }>('/api/knowledge/tool/:tool', async (req, reply) => {
+    const card = knowledge.forTool(req.params.tool);
+    if (!card) return reply.code(404).send({ error: 'no card for tool' });
+    return card;
+  });
+  app.post('/api/knowledge/reload', async () => {
+    await knowledge.load();
+    return { count: knowledge.all().length };
+  });
+
+  // -- learning records
+  const broadcastLearning = (state: ReturnType<typeof learning.get>) => {
+    hub.broadcast({ type: 'learning.state', state });
+    return state;
+  };
+  app.get('/api/learning', async () => learning.get());
+  app.post<{ Body: { cardId: string } }>('/api/learning/seen', async (req) => broadcastLearning(await learning.markSeen(req.body.cardId)));
+  app.post<{ Body: { cardId: string; correct: boolean } }>('/api/learning/quiz', async (req) =>
+    broadcastLearning(await learning.recordQuiz(req.body.cardId, !!req.body.correct)),
+  );
+  app.post<{ Body: { cardId: string; mastery: 'seen' | 'learning' | 'mastered' } }>('/api/learning/mastery', async (req) =>
+    broadcastLearning(await learning.setMastery(req.body.cardId, req.body.mastery)),
+  );
+  app.post<{ Body: { cardId: string; notes: string } }>('/api/learning/notes', async (req) =>
+    broadcastLearning(await learning.setNotes(req.body.cardId, req.body.notes ?? '')),
+  );
+
+  // -- explain via a fresh opencode session
+  app.post<{ Body: ExplainRequest }>('/api/explain', async (req, reply) => {
+    const body = req.body ?? ({} as ExplainRequest);
+    if (!body.term?.trim()) return reply.code(400).send({ error: 'term required' });
+    const card = body.cardId ? knowledge.get(body.cardId) : knowledge.find(body.term);
+    try {
+      const session = await opencode.createSession({ title: teachingSessionTitle(body.term) });
+      teachingSessions.add(session.id);
+      await opencode.promptAsync(session.id, {
+        parts: [{ type: 'text', text: buildExplainPrompt(body, card, cfg.projectRoot) }],
+        system: TEACHING_SYSTEM_PROMPT,
+        tools: TEACHING_TOOLS,
+        ...(body.model ? { model: body.model } : {}),
+      });
+      if (card) void learning.markSeen(card.id).then(broadcastLearning);
+      const res: ExplainResponse = { sessionID: session.id, title: session.title };
+      return res;
+    } catch (e) {
+      return reply.code(502).send({ error: String(e instanceof Error ? e.message : e) });
+    }
+  });
+
+  // ---- start -------------------------------------------------------------------
+  await app.listen({ port: cfg.port, host: cfg.host });
+  console.log(`[pixelweb] v${VERSION} listening on http://${cfg.host}:${cfg.port}${hasUi ? '' : '  (UI not built; run `npm run dev:web` or `npm run build`)'}`);
+  console.log(`[pixelweb] project: ${cfg.projectRoot}`);
+  console.log(`[pixelweb] knowledge cards: ${knowledge.all().length}`);
+
+  opencode.start();
+  void gitSvc.refresh().then(() => gitSvc.watch()).catch((e) => console.warn('[pixelweb] git init:', e?.message ?? e));
+  void refreshArch().catch((e) => console.warn('[pixelweb] arch init:', e?.message ?? e));
+
+  const shutdown = async () => {
+    opencode.stop();
+    await gitSvc.close();
+    await app.close();
+    process.exit(0);
+  };
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
+}
+
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});
