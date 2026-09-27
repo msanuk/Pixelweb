@@ -1,7 +1,8 @@
 ---
 id: sandbox
 title: 沙箱（Sandbox）
-aliases: [sandbox, 隔离环境, 容器]
+aliases: [sandbox, 隔离环境]
+keywords: [容器]
 category: general
 level: 2
 summary: 限制程序能触碰的文件、网络和进程的隔离环境，让 agent 犯错的代价可控。

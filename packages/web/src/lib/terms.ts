@@ -8,6 +8,9 @@ function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+const ASCII_BEFORE = '(?<![\\w./\\\\-])';
+const ASCII_AFTER = '(?![\\w/\\\\-]|\\.\\w)';
+
 export function buildMatcher(terms: { term: string; cardId: string }[]): TermMatcher {
   const lookup = new Map<string, string>();
   const parts: string[] = [];
@@ -18,8 +21,9 @@ export function buildMatcher(terms: { term: string; cardId: string }[]): TermMat
     if (lookup.has(key)) continue;
     lookup.set(key, cardId);
     const ascii = /^[\x00-\x7f]+$/.test(term);
-    // word boundaries only make sense for ASCII terms; CJK has no spaces
-    parts.push(ascii ? `\\b${escapeRe(term)}\\b` : escapeRe(term));
+    // ASCII terms need a boundary (CJK has no spaces), and one stricter than \b:
+    // not inside a path, file name, URL or identifier — "ts" in auth.ts, "bash" in tool-bash
+    parts.push(ascii ? `${ASCII_BEFORE}${escapeRe(term)}${ASCII_AFTER}` : escapeRe(term));
   }
   if (parts.length === 0) return { regex: null, lookup };
   return { regex: new RegExp(`(${parts.join('|')})`, 'gi'), lookup };

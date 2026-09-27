@@ -14,6 +14,7 @@ export function parseCard(raw: string, fallbackId: string): KnowledgeCard {
     id,
     title: String(data.title ?? id),
     aliases: toStringArray(data.aliases),
+    keywords: toStringArray(data.keywords),
     category,
     summary: String(data.summary ?? '').trim(),
     body: content.trim(),
@@ -47,7 +48,7 @@ function toQuiz(v: unknown): QuizItem[] {
     }));
 }
 
-/** Simple scoring search across title, aliases and summary. */
+/** Simple scoring search across title, aliases, keywords and summary. */
 export function searchCards(cards: KnowledgeCard[], query: string, limit = 10): KnowledgeIndexEntry[] {
   const q = query.trim().toLowerCase();
   if (!q) return [];
@@ -57,7 +58,7 @@ export function searchCards(cards: KnowledgeCard[], query: string, limit = 10): 
       const title = c.title.toLowerCase();
       if (title === q || c.id === q) score += 100;
       else if (title.includes(q)) score += 40;
-      for (const a of c.aliases) {
+      for (const a of [...c.aliases, ...c.keywords]) {
         const al = a.toLowerCase();
         if (al === q) score += 90;
         else if (al.includes(q) || q.includes(al)) score += 30;
@@ -73,7 +74,7 @@ export function searchCards(cards: KnowledgeCard[], query: string, limit = 10): 
 }
 
 export function toIndexEntry(c: KnowledgeCard): KnowledgeIndexEntry {
-  return { id: c.id, title: c.title, aliases: c.aliases, category: c.category, summary: c.summary, level: c.level };
+  return { id: c.id, title: c.title, aliases: c.aliases, keywords: c.keywords, category: c.category, summary: c.summary, level: c.level };
 }
 
 export class KnowledgeStore {
@@ -122,12 +123,12 @@ export class KnowledgeStore {
     return this.cards.get(id);
   }
 
-  /** Finds a card by id, title or alias (case-insensitive). */
+  /** Finds a card by id, title, alias or keyword (case-insensitive). */
   find(term: string): KnowledgeCard | undefined {
     const t = term.trim().toLowerCase();
     return (
       this.cards.get(t) ??
-      this.all().find((c) => c.title.toLowerCase() === t || c.aliases.some((a) => a.toLowerCase() === t))
+      this.all().find((c) => c.title.toLowerCase() === t || [...c.aliases, ...c.keywords].some((a) => a.toLowerCase() === t))
     );
   }
 
@@ -135,7 +136,7 @@ export class KnowledgeStore {
     return searchCards(this.all(), q, limit);
   }
 
-  /** Terms for client-side highlighting: every title + alias mapped to card id. */
+  /** Terms for client-side highlighting: every title + alias (not keywords) mapped to card id. */
   terms(): { term: string; cardId: string }[] {
     const out: { term: string; cardId: string }[] = [];
     for (const c of this.cards.values()) {

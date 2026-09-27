@@ -1,7 +1,8 @@
 ---
 id: hallucination
 title: 幻觉（Hallucination）
-aliases: [hallucination, 编造, 一本正经地胡说]
+aliases: [hallucination, 一本正经地胡说]
+keywords: [编造]
 category: ai
 level: 1
 summary: 模型自信地输出不存在的 API、文件或事实；根源是它在预测「像真的」而不是「是真的」。

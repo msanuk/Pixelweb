@@ -1,7 +1,8 @@
 ---
 id: module
 title: 模块（Module）
-aliases: [module, import, export, ES module]
+aliases: [module, ES module]
+keywords: [import, export]
 category: architecture
 level: 1
 summary: 一个有自己作用域、通过 import/export 与外界交换的代码单元，通常就是一个文件。

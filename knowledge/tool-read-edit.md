@@ -1,7 +1,8 @@
 ---
 id: tool-read-edit
 title: read / edit / write 工具
-aliases: [read, edit, write, 读文件, 改文件, 写文件]
+aliases: [读文件, 改文件, 写文件]
+keywords: [read, edit, write]
 category: ai
 level: 1
 summary: agent 的「眼」和「手」：read 把文件内容放进上下文，edit 做精确字符串替换，write 整文件覆盖。

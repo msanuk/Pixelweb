@@ -1,7 +1,8 @@
 ---
 id: context-window
 title: Context Window
-aliases: [上下文窗口, 上下文, context]
+aliases: [上下文窗口]
+keywords: [上下文, context]
 category: ai
 level: 1
 summary: 模型一次能「看见」的 token 上限；超出的历史要么被压缩，要么被丢掉。

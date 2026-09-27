@@ -230,7 +230,10 @@ export interface QuizItem {
 export interface KnowledgeCard {
   id: string;
   title: string;
+  /** Highlighted wherever they appear in agent text — keep them specific. */
   aliases: string[];
+  /** Search-only synonyms: too generic to highlight (请求, API, fetch…). */
+  keywords: string[];
   category: CardCategory;
   /** One sentence. Fits working memory. */
   summary: string;
@@ -249,6 +252,7 @@ export interface KnowledgeIndexEntry {
   id: string;
   title: string;
   aliases: string[];
+  keywords?: string[];
   category: CardCategory;
   summary: string;
   level: 1 | 2 | 3;

@@ -1,7 +1,8 @@
 ---
 id: client-server
 title: 客户端 / 服务端
-aliases: [client, server, 前端, 后端, C/S]
+aliases: [客户端, 服务端, 服务器, 前端, 后端, C/S]
+keywords: [client, server]
 category: architecture
 level: 1
 summary: 服务端持有数据和能力并等待请求；客户端发起请求并呈现结果。一个程序可以同时是两者。

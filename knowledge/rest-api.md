@@ -1,7 +1,8 @@
 ---
 id: rest-api
 title: REST API
-aliases: [REST, API, HTTP API, 接口]
+aliases: [REST, HTTP API]
+keywords: [API, 接口]
 category: web
 level: 1
 summary: 用 HTTP 动词（GET/POST/…）操作以 URL 表示的资源，返回通常是 JSON。

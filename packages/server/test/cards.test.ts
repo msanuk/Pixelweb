@@ -37,4 +37,19 @@ describe('bundled knowledge cards', () => {
     }
     expect(missing).toEqual([]);
   });
+
+  it('no highlighted term points at two different cards', () => {
+    const owner = new Map<string, string>();
+    const clashes: string[] = [];
+    for (const f of files) {
+      const card = parseCard(fs.readFileSync(path.join(dir, f), 'utf8'), f.replace(/\.md$/, ''));
+      for (const t of [card.title, ...card.aliases]) {
+        const k = t.toLowerCase();
+        const prev = owner.get(k);
+        if (prev && prev !== card.id) clashes.push(`${t}: ${prev} / ${card.id}`);
+        owner.set(k, card.id);
+      }
+    }
+    expect(clashes).toEqual([]);
+  });
 });

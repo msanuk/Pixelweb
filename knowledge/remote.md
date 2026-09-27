@@ -1,7 +1,8 @@
 ---
 id: remote
 title: Remote（远程仓库）
-aliases: [远程仓库, origin, git remote, push, pull, fetch]
+aliases: [远程仓库, git remote, push, pull]
+keywords: [origin, fetch]
 category: git
 level: 1
 summary: 托管在别处的同一仓库副本；`origin/main` 是你本地缓存的「上次看到的远程状态」。

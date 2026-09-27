@@ -1,7 +1,8 @@
 ---
 id: prompt
 title: Prompt
-aliases: [提示词, 提示, prompting]
+aliases: [提示词, prompting]
+keywords: [提示]
 category: ai
 level: 1
 summary: 你发给模型的输入文本；写得越具体、越有上下文，输出越可控。
