@@ -1,5 +1,9 @@
-import { describe, expect, it } from 'vitest';
-import { parseBranches, parseLog, parseStatus } from '../src/git/service.js';
+import { execFileSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { GitService, parseBranches, parseLog, parseStatus } from '../src/git/service.js';
 
 const S = '\u001f';
 
@@ -44,5 +48,43 @@ describe('parseStatus', () => {
       { path: 'new.txt', code: '??' },
       { path: 'new.ts', code: 'R ' },
     ]);
+  });
+});
+
+describe('GitService.diff', () => {
+  let dir: string;
+  let svc: GitService;
+  const run = (...args: string[]) => execFileSync('git', args, { cwd: dir });
+
+  beforeAll(async () => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pixelweb-git-'));
+    run('init', '-q');
+    run('config', 'user.email', 'test@example.com');
+    run('config', 'user.name', 'test');
+    fs.writeFileSync(path.join(dir, 'a.txt'), 'one\ntwo\n');
+    fs.writeFileSync(path.join(dir, 'secret.txt'), 'committed and unchanged\n');
+    run('add', '.');
+    run('commit', '-q', '-m', 'init');
+    fs.writeFileSync(path.join(dir, 'a.txt'), 'one\nTWO\n');
+    fs.writeFileSync(path.join(dir, 'new.txt'), 'fresh\n');
+    svc = new GitService(dir);
+    await svc.refresh();
+  });
+  afterAll(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  it('diffs a modified tracked file against HEAD', async () => {
+    const d = await svc.diff('a.txt');
+    expect(d).toContain('-two');
+    expect(d).toContain('+TWO');
+  });
+
+  it('diffs an untracked file as all additions', async () => {
+    const d = await svc.diff('new.txt');
+    expect(d).toContain('+fresh');
+  });
+
+  it('refuses paths that are not in git status', async () => {
+    expect(await svc.diff('secret.txt')).toBeNull();
+    expect(await svc.diff('../outside.txt')).toBeNull();
   });
 });

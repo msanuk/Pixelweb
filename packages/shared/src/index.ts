@@ -92,6 +92,8 @@ export interface OcMessageWithParts {
 export interface OcPermission {
   id: string;
   type: string;
+  /** what is being asked for, e.g. the bash command; a list for multi-pattern requests */
+  pattern?: string | string[];
   sessionID: string;
   messageID: string;
   callID?: string;
@@ -99,6 +101,9 @@ export interface OcPermission {
   metadata: Record<string, unknown>;
   time: { created: number };
 }
+
+/** Allowed answers to an OpenCode permission request. */
+export type PermissionResponse = 'once' | 'always' | 'reject';
 
 export interface OcTodo {
   id: string;

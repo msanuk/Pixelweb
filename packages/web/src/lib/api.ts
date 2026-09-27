@@ -9,6 +9,7 @@ import type {
   MasteryLevel,
   OcMessageWithParts,
   OcSession,
+  PermissionResponse,
   ServerInfo,
 } from '@pixelweb/shared';
 
@@ -34,7 +35,13 @@ export const api = {
   abort: (id: string) => req(`/api/sessions/${encodeURIComponent(id)}/abort`, { method: 'POST' }),
   prompt: (id: string, text: string) =>
     req(`/api/sessions/${encodeURIComponent(id)}/prompt`, { method: 'POST', body: JSON.stringify({ text }) }),
+  replyPermission: (sessionID: string, permissionID: string, response: PermissionResponse) =>
+    req<{ ok: boolean }>(`/api/sessions/${encodeURIComponent(sessionID)}/permissions/${encodeURIComponent(permissionID)}`, {
+      method: 'POST',
+      body: JSON.stringify({ response }),
+    }),
   git: () => req<GitSnapshot | null>('/api/git'),
+  gitDiff: (path: string) => req<{ path: string; diff: string }>(`/api/git/diff?path=${encodeURIComponent(path)}`),
   arch: (level: 'file' | 'dir', refresh = false) => req<ArchGraph>(`/api/arch?level=${level}${refresh ? '&refresh=1' : ''}`),
   knowledge: () => req<KnowledgeIndexEntry[]>('/api/knowledge'),
   terms: () => req<{ term: string; cardId: string }[]>('/api/knowledge/terms'),

@@ -6,7 +6,7 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import fastifyStatic from '@fastify/static';
 import websocket from '@fastify/websocket';
-import type { ClientMessage, ExplainRequest, ExplainResponse, ServerInfo, ServerMessage } from '@pixelweb/shared';
+import type { ClientMessage, ExplainRequest, ExplainResponse, PermissionResponse, ServerInfo, ServerMessage } from '@pixelweb/shared';
 import { loadConfig, printUsage } from './config.js';
 import { OpencodeClient, type GlobalEvent } from './opencode/client.js';
 import { Hub } from './ws.js';
@@ -143,6 +143,20 @@ async function main(): Promise<void> {
       return reply.code(502).send({ error: String(e instanceof Error ? e.message : e) });
     }
   });
+  app.post<{ Params: { id: string; permissionID: string }; Body: { response: PermissionResponse } }>(
+    '/api/sessions/:id/permissions/:permissionID',
+    async (req, reply) => {
+      const response = req.body?.response;
+      if (response !== 'once' && response !== 'always' && response !== 'reject') {
+        return reply.code(400).send({ error: 'response must be once | always | reject' });
+      }
+      try {
+        return { ok: await opencode.replyPermission(req.params.id, req.params.permissionID, response) };
+      } catch (e) {
+        return reply.code(502).send({ error: String(e instanceof Error ? e.message : e) });
+      }
+    },
+  );
   app.post<{ Params: { id: string }; Body: { text: string } }>('/api/sessions/:id/prompt', async (req, reply) => {
     const text = req.body?.text?.trim();
     if (!text) return reply.code(400).send({ error: 'text required' });
@@ -159,6 +173,16 @@ async function main(): Promise<void> {
 
   // -- git / architecture
   app.get('/api/git', async () => gitSvc.current ?? (await gitSvc.refresh()));
+  app.get<{ Querystring: { path?: string } }>('/api/git/diff', async (req, reply) => {
+    if (!req.query.path) return reply.code(400).send({ error: 'path required' });
+    try {
+      const diff = await gitSvc.diff(req.query.path);
+      if (diff === null) return reply.code(404).send({ error: 'not a changed file' });
+      return { path: req.query.path, diff };
+    } catch (e) {
+      return reply.code(500).send({ error: String(e instanceof Error ? e.message : e) });
+    }
+  });
   app.get<{ Querystring: { level?: 'file' | 'dir'; refresh?: string } }>('/api/arch', async (req) => {
     const level = req.query.level ?? archLevel;
     if (archCache && level === archLevel && !req.query.refresh) return archCache;

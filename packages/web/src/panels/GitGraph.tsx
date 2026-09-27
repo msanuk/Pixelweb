@@ -1,9 +1,12 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { GitCommit, GitSnapshot } from '@pixelweb/shared';
 import { openCard, useStore } from '../lib/store';
 import { send } from '../lib/ws';
 import { fmtDate } from '../lib/format';
 import { Highlight } from '../components/Highlight';
+import { DiffStat, DiffView } from '../components/DiffView';
+import { parseUnified, type Diff } from '../lib/diff';
+import { api } from '../lib/api';
 
 const LANE_W = 22;
 const ROW_H = 30;
@@ -72,6 +75,7 @@ export function GitGraph() {
   const [selected, setSelected] = useState<string | null>(null);
   const [filter, setFilter] = useState('');
   const cardOpen = useStore((s) => s.openCard !== null);
+  const [file, setFile] = useState<string | null>(null);
 
   const laid = useMemo(() => (git ? layoutCommits(git.commits) : null), [git]);
 
@@ -129,6 +133,9 @@ export function GitGraph() {
       </header>
 
       <div className="git-body">
+        {file ? (
+          <FileDiff path={file} git={git} onClose={() => setFile(null)} />
+        ) : (
         <div className="git-graph">
           <svg width={(laid!.lanes + 1) * LANE_W + 8} height={git.commits.length * ROW_H + 10} className="graph-svg">
             {laid!.edges.map((e, i) => {
@@ -170,6 +177,7 @@ export function GitGraph() {
             })}
           </ol>
         </div>
+        )}
 
         {!cardOpen && (
         <aside className="git-side">
@@ -186,8 +194,10 @@ export function GitGraph() {
             ) : (
               <ul className="status-list">
                 {git.status.slice(0, 60).map((s) => (
-                  <li key={s.path}>
-                    <code className={`code-${s.code.trim() || 'x'}`}>{s.code}</code> {s.path}
+                  <li key={s.path} className={file === s.path ? 'selected' : ''}>
+                    <button className="file-btn" onClick={() => setFile(file === s.path ? null : s.path)} title="查看 diff">
+                      <code className={`code-${s.code.trim() || 'x'}`}>{s.code}</code> {s.path}
+                    </button>
                   </li>
                 ))}
                 {git.status.length > 60 && <li className="muted">… 还有 {git.status.length - 60} 项</li>}
@@ -218,6 +228,45 @@ export function GitGraph() {
           </section>
         </aside>
         )}
+      </div>
+    </div>
+  );
+}
+
+/** Working-tree diff of one file; reloads when the git snapshot changes (e.g. the agent edits it again). */
+function FileDiff({ path, git, onClose }: { path: string; git: GitSnapshot; onClose: () => void }) {
+  const [diff, setDiff] = useState<Diff | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const code = git.status.find((s) => s.path === path)?.code;
+
+  useEffect(() => {
+    let live = true;
+    setErr(null);
+    api
+      .gitDiff(path)
+      .then((r) => live && setDiff(parseUnified(r.diff)))
+      .catch((e) => live && (setDiff(null), setErr(e instanceof Error ? e.message : String(e))));
+    return () => {
+      live = false;
+    };
+  }, [path, git]);
+
+  return (
+    <div className="file-diff">
+      <div className="file-diff-head">
+        <button className="link-btn muted" onClick={onClose}>
+          ← 提交图
+        </button>
+        <span className="mono strong">{path}</span>
+        {code && (
+          <button className="chip" onClick={() => openCard(code.includes('?') ? 'staging-area' : 'diff', `${code} ${path}`)}>
+            {code.includes('?') ? '未跟踪' : code.trim() === 'D' ? '已删除' : '已修改'}
+          </button>
+        )}
+        {diff && <DiffStat diff={diff} />}
+      </div>
+      <div className="file-diff-body">
+        {err ? <p className="muted">{err === 'not a changed file' ? '这个路径已经没有改动（或是一个目录）。' : `无法获取 diff：${err}`}</p> : diff ? <DiffView diff={diff} maxRows={2000} /> : <p className="muted">加载中…</p>}
       </div>
     </div>
   );

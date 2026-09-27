@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { OcMessageWithParts, OcPart } from '@pixelweb/shared';
+import type { OcMessageWithParts, OcPart, OcPermission, PermissionResponse } from '@pixelweb/shared';
 import { api } from '../lib/api';
-import { explain, loadMessages, openCard, toast, useStore } from '../lib/store';
+import { explain, loadMessages, openCard, setState, toast, useStore } from '../lib/store';
 import { displayTitle, fmtDuration, fmtNum, fmtTime } from '../lib/format';
 import { Markdown } from '../components/Markdown';
 import { Highlight } from '../components/Highlight';
+import { DiffStat, DiffView } from '../components/DiffView';
+import { lineDiff, parseUnified, type Diff } from '../lib/diff';
 
 const TOOL_CARD: Record<string, string> = {
   bash: 'tool-bash',
@@ -117,18 +119,6 @@ export function Timeline() {
         </div>
       </header>
 
-      {permissions.length > 0 && (
-        <div className="banner warn">
-          <strong>
-            等待
-            <button className="term" onClick={() => openCard('permission', permissions.map((p) => p.title).join('\n'))}>
-              权限确认
-            </button>
-          </strong>
-          ：{permissions.map((p) => p.title).join('；')}（请在 OpenCode 里回复）
-        </div>
-      )}
-
       {todos && todos.length > 0 && (
         <details className="todos" open>
           <summary>
@@ -157,6 +147,8 @@ export function Timeline() {
         <div ref={bottomRef} />
       </div>
 
+      {permissions.length > 0 && <PermissionRequests permissions={permissions} />}
+
       <form
         className="composer"
         onSubmit={(e) => {
@@ -173,6 +165,52 @@ export function Timeline() {
           发送
         </button>
       </form>
+    </div>
+  );
+}
+
+/** Pending permission requests, answered in place instead of switching to the OpenCode terminal. */
+function PermissionRequests({ permissions }: { permissions: OcPermission[] }) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const reply = async (p: OcPermission, response: PermissionResponse) => {
+    setBusy(p.id);
+    try {
+      await api.replyPermission(p.sessionID, p.id, response);
+      // opencode also sends permission.replied; drop it now so the bar doesn't linger
+      setState((s) => ({ permissions: s.permissions.filter((x) => x.id !== p.id) }));
+    } catch (e) {
+      toast(`回复权限失败：${e instanceof Error ? e.message : e}`);
+    } finally {
+      setBusy(null);
+    }
+  };
+  return (
+    <div className="permissions" role="alert">
+      {permissions.map((p) => {
+        const what = Array.isArray(p.pattern) ? p.pattern.join(' ') : p.pattern || p.title;
+        return (
+          <div key={p.id} className="perm">
+            <span className="perm-what">
+              <button className="term strong" onClick={() => openCard('permission', `${p.type}: ${what}`)}>
+                需要权限
+              </button>
+              <span className="chip">{p.type}</span>
+              <code title={p.title}>{what}</code>
+            </span>
+            <span className="actions">
+              <button className="primary" disabled={busy === p.id} onClick={() => void reply(p, 'once')}>
+                允许一次
+              </button>
+              <button disabled={busy === p.id} onClick={() => void reply(p, 'always')} title="同类请求以后自动允许">
+                总是允许
+              </button>
+              <button className="danger" disabled={busy === p.id} onClick={() => void reply(p, 'reject')}>
+                拒绝
+              </button>
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -293,6 +331,7 @@ function ToolPart({ p, sessionTitle }: { p: Extract<OcPart, { type: 'tool' }>; s
   const title = st.status === 'completed' || st.status === 'running' ? (st as any).title : undefined;
   const dur = st.status === 'completed' || st.status === 'error' ? fmtDuration(st.time.end - st.time.start) : null;
   const ctx = `会话「${sessionTitle}」中的工具调用 ${p.tool}\ninput: ${JSON.stringify(st.input).slice(0, 400)}`;
+  const diff = useMemo(() => toolDiff(p), [p]);
   return (
     <div className={`part tool status-${st.status} ${open ? 'open' : ''}`}>
       <div className="tool-head" onClick={() => setOpen(!open)}>
@@ -308,15 +347,29 @@ function ToolPart({ p, sessionTitle }: { p: Extract<OcPart, { type: 'tool' }>; s
           {p.tool}
         </button>
         <span className="tool-title">{title ?? summariseInput(p.tool, st.input)}</span>
+        {diff && (diff.additions > 0 || diff.deletions > 0) && <DiffStat diff={diff} />}
         {st.status === 'error' && <span className="status-label">失败</span>}
         {dur && <span className="muted mono small">{dur}</span>}
         <span className="muted caret">{open ? '▾' : '▸'}</span>
       </div>
       {open && (
         <div className="tool-body">
-          <h5>input</h5>
-          <pre>{JSON.stringify(st.input, null, 2)}</pre>
-          {st.status === 'completed' && (
+          {diff ? (
+            <>
+              <h5>
+                <button className="term" onClick={() => openCard('diff', ctx)}>
+                  diff
+                </button>
+              </h5>
+              <DiffView diff={diff} />
+            </>
+          ) : (
+            <>
+              <h5>input</h5>
+              <pre>{JSON.stringify(st.input, null, 2)}</pre>
+            </>
+          )}
+          {st.status === 'completed' && !diff && (
             <>
               <h5>output</h5>
               <pre>{truncate(st.output, 4000)}</pre>
@@ -335,6 +388,22 @@ function ToolPart({ p, sessionTitle }: { p: Extract<OcPart, { type: 'tool' }>; s
       )}
     </div>
   );
+}
+
+/** File-changing tools get a diff: opencode's own unified diff when present, else one computed from the input. */
+function toolDiff(p: Extract<OcPart, { type: 'tool' }>): Diff | null {
+  const tool = p.tool.toLowerCase();
+  if (!['edit', 'write', 'multiedit', 'patch'].includes(tool)) return null;
+  const st = p.state;
+  const meta = st.status === 'completed' ? st.metadata : undefined;
+  if (typeof meta?.diff === 'string' && meta.diff.trim()) return parseUnified(meta.diff);
+  const input = st.input;
+  if (tool === 'edit' && typeof input.oldString === 'string' && typeof input.newString === 'string') {
+    if (!input.oldString && !input.newString) return null;
+    return { ...lineDiff(input.oldString, input.newString), fragment: true };
+  }
+  if (tool === 'write' && typeof input.content === 'string') return lineDiff('', input.content);
+  return null;
 }
 
 function summariseInput(tool: string, input: Record<string, unknown>): string {

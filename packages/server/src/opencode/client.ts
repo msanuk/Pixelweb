@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import type { OcEvent, OcMessageWithParts, OcSession } from '@pixelweb/shared';
+import type { OcEvent, OcMessageWithParts, OcSession, PermissionResponse } from '@pixelweb/shared';
 
 /**
  * Minimal, dependency-free client for `opencode serve`.
@@ -102,6 +102,14 @@ export class OpencodeClient extends EventEmitter {
     return this.json(`session/${encodeURIComponent(id)}/prompt_async`, {
       method: 'POST',
       body: JSON.stringify(input),
+    });
+  }
+
+  /** Answer a pending permission request; opencode confirms with a `permission.replied` event. */
+  replyPermission(id: string, permissionID: string, response: PermissionResponse): Promise<boolean> {
+    return this.json(`session/${encodeURIComponent(id)}/permissions/${encodeURIComponent(permissionID)}`, {
+      method: 'POST',
+      body: JSON.stringify({ response }),
     });
   }
 
