@@ -145,7 +145,7 @@ function Login() {
 function TopBar() {
   const git = useStore((s) => s.git);
   const server = useStore((s) => s.server);
-  const project = server?.projectRoot.split('/').filter(Boolean).slice(-1)[0];
+  const project = server?.projectRoot.split(/[\\/]/).filter(Boolean).pop(); // Windows paths use backslashes
 
   return (
     <header className="topbar">

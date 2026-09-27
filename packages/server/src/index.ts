@@ -272,9 +272,12 @@ async function main(): Promise<void> {
   app.post<{ Body: { cardId: string; mastery: 'seen' | 'learning' | 'mastered' } }>('/api/learning/mastery', async (req) =>
     broadcastLearning(await learning.setMastery(req.body.cardId, req.body.mastery)),
   );
-  app.post<{ Body: { cardId: string; notes: string } }>('/api/learning/notes', async (req) =>
-    broadcastLearning(await learning.setNotes(req.body.cardId, req.body.notes ?? '')),
-  );
+  app.post<{ Body: { cardId: string; notes: string } }>('/api/learning/notes', async (req, reply) => {
+    const { cardId, notes } = req.body ?? {};
+    if (typeof cardId !== 'string' || !cardId || typeof notes !== 'string') return reply.code(400).send({ error: 'cardId and notes required' });
+    if (notes.length > 20_000) return reply.code(413).send({ error: '笔记太长（上限 2 万字）' });
+    return broadcastLearning(await learning.setNotes(cardId, notes));
+  });
 
   // -- explain via a fresh opencode session
   app.post<{ Body: ExplainRequest }>('/api/explain', async (req, reply) => {

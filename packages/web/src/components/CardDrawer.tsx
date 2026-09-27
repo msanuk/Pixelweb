@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { KnowledgeCard } from '@pixelweb/shared';
 import { api } from '../lib/api';
-import { explain, openCard, setState, useStore } from '../lib/store';
+import { explain, openCard, setState, toast, useStore } from '../lib/store';
 import { Markdown } from './Markdown';
 import { Icon } from './Icon';
 
@@ -96,6 +96,8 @@ export function CardDrawer() {
             </section>
           )}
 
+          <Notes cardId={card.id} initial={record?.notes ?? ''} />
+
           {card.related.length > 0 && (
             <section>
               <h4>相关概念</h4>
@@ -159,6 +161,64 @@ export function CardDrawer() {
         </div>
       )}
     </aside>
+  );
+}
+
+/** Free-form notes on a card, saved as you type (and on blur); exported from the knowledge page. */
+function Notes({ cardId, initial }: { cardId: string; initial: string }) {
+  const [text, setText] = useState(initial);
+  const [state, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const saved = useRef(initial);
+  const latest = useRef(initial);
+  const timer = useRef<ReturnType<typeof setTimeout>>();
+
+  // a different card: start from its saved notes (not on every broadcast, which would clobber the textarea mid-typing).
+  // Leaving a card (switching, Esc, close) flushes an unsaved edit, since no blur fires then.
+  useEffect(() => {
+    setText(initial);
+    saved.current = latest.current = initial;
+    setSaveState('idle');
+    return () => {
+      clearTimeout(timer.current);
+      if (latest.current !== saved.current) void api.notes(cardId, latest.current).then((learning) => setState({ learning })).catch(() => {});
+    };
+  }, [cardId]);
+
+  const save = async (value: string) => {
+    clearTimeout(timer.current);
+    if (value === saved.current) return;
+    setSaveState('saving');
+    try {
+      const learning = await api.notes(cardId, value);
+      saved.current = value;
+      setState({ learning });
+      setSaveState('saved');
+    } catch (e) {
+      setSaveState('error');
+      toast(`笔记没保存上：${e instanceof Error ? e.message : e}`);
+    }
+  };
+
+  return (
+    <section className="notes">
+      <h4>
+        我的笔记
+        <span className="muted small">{state === 'saving' ? ' 保存中…' : state === 'saved' ? ' 已保存' : state === 'error' ? ' 保存失败' : ''}</span>
+      </h4>
+      <textarea
+        value={text}
+        placeholder="用自己的话写下它是什么、在这个项目里哪里见到过……"
+        rows={Math.min(12, Math.max(3, text.split('\n').length + 1))}
+        onChange={(e) => {
+          const v = e.target.value;
+          setText(v);
+          latest.current = v;
+          clearTimeout(timer.current);
+          timer.current = setTimeout(() => void save(v), 800);
+        }}
+        onBlur={() => void save(text)}
+      />
+    </section>
   );
 }
 

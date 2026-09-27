@@ -246,6 +246,8 @@ h2, h3, h4, h5 { margin: 0.4em 0; }
 .recap-done summary { cursor: pointer; }
 .recap > .link-btn { display: inline-block; margin-top: 10px; font-size: 12px; color: var(--muted); }
 .recap > .link-btn:hover { color: var(--text); }
+.notes textarea { width: 100%; font: inherit; font-size: 13px; line-height: 1.5; color: inherit; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; resize: vertical; }
+.notes textarea:focus { border-color: var(--border-strong); }
 .part.tool.flash { animation: flash 1.6s ease-out; }
 @keyframes flash { from { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--text); } to { background: transparent; box-shadow: inset 2px 0 0 transparent; } }
 .composer { display: flex; gap: 8px; padding: 10px 16px; border-top: 1px solid var(--border); background: var(--panel); }

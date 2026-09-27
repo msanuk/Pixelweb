@@ -67,6 +67,8 @@ export const api = {
   seen: (cardId: string) => req<LearningState>('/api/learning/seen', { method: 'POST', body: JSON.stringify({ cardId }) }),
   quiz: (cardId: string, correct: boolean) =>
     req<LearningState>('/api/learning/quiz', { method: 'POST', body: JSON.stringify({ cardId, correct }) }),
+  notes: (cardId: string, notes: string) =>
+    req<LearningState>('/api/learning/notes', { method: 'POST', body: JSON.stringify({ cardId, notes }) }),
   mastery: (cardId: string, mastery: MasteryLevel) =>
     req<LearningState>('/api/learning/mastery', { method: 'POST', body: JSON.stringify({ cardId, mastery }) }),
   explain: (body: ExplainRequest) => req<ExplainResponse>('/api/explain', { method: 'POST', body: JSON.stringify(body) }),

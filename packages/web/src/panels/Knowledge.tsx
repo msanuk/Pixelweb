@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import type { CardCategory } from '@pixelweb/shared';
 import { openCard, useStore } from '../lib/store';
 import { masteryLabel } from '../components/CardDrawer';
+import { downloadText, exportFilename, learningMarkdown } from '../lib/export';
 
 const CATS: { id: CardCategory | 'all'; label: string }[] = [
   { id: 'all', label: '全部' },
@@ -19,6 +20,8 @@ export function Knowledge() {
   const [cat, setCat] = useState<CardCategory | 'all'>('all');
   const [q, setQ] = useState('');
   const [onlyUnseen, setOnlyUnseen] = useState(false);
+  const project = useStore((s) => s.server?.projectRoot.split(/[\\/]/).filter(Boolean).pop());
+  const noteCount = useMemo(() => Object.values(learning.records).filter((r) => r.notes?.trim()).length, [learning]);
 
   const list = useMemo(() => {
     const ql = q.trim().toLowerCase();
@@ -59,6 +62,16 @@ export function Knowledge() {
           <label>
             <input type="checkbox" checked={onlyUnseen} onChange={(e) => setOnlyUnseen(e.target.checked)} /> 只看没学过的
           </label>
+          <button
+            onClick={() => {
+              const now = Date.now();
+              downloadText(exportFilename(now), learningMarkdown(cards, learning, { project, now }));
+            }}
+            disabled={stats.seen === 0}
+            title={stats.seen === 0 ? '还没有学习记录' : `导出 ${stats.seen} 张卡片的学习记录${noteCount ? `和 ${noteCount} 条笔记` : ''}`}
+          >
+            导出笔记
+          </button>
         </div>
       </header>
       <div className="cat-tabs">
