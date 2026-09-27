@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { CardDrawer } from './components/CardDrawer';
 import { SettingsDialog } from './components/Settings';
+import { CommandPalette, PaletteTrigger } from './components/CommandPalette';
 import { Icon, type IconName } from './components/Icon';
 import { Timeline } from './panels/Timeline';
 import { GitGraph } from './panels/GitGraph';
@@ -29,12 +30,20 @@ export function App() {
   const toast = useStore((s) => s.toast);
   const needLogin = useStore((s) => s.needLogin);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
 
+  // the two dialogs never stack: opening one closes the other
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === ',') {
+      if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return;
+      if (e.key === ',') {
         e.preventDefault();
+        setPaletteOpen(false);
         setSettingsOpen((o) => !o);
+      } else if (e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setSettingsOpen(false);
+        setPaletteOpen((o) => !o);
       }
     };
     window.addEventListener('keydown', onKey);
@@ -44,7 +53,7 @@ export function App() {
   if (needLogin) return <Login />;
   return (
     <div className="app">
-      <TopBar />
+      <TopBar onOpenPalette={() => setPaletteOpen(true)} />
       <div className="main">
         <NavRail onSettings={() => setSettingsOpen(true)} />
         {tab === 'timeline' && <SessionList />}
@@ -58,6 +67,7 @@ export function App() {
       </div>
       {toast && <div className="toast">{toast}</div>}
       {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
+      {paletteOpen && <CommandPalette onClose={() => setPaletteOpen(false)} onOpenSettings={() => setSettingsOpen(true)} />}
     </div>
   );
 }
@@ -142,7 +152,7 @@ function Login() {
   );
 }
 
-function TopBar() {
+function TopBar({ onOpenPalette }: { onOpenPalette: () => void }) {
   const git = useStore((s) => s.git);
   const server = useStore((s) => s.server);
   const project = server?.projectRoot.split(/[\\/]/).filter(Boolean).pop(); // Windows paths use backslashes
@@ -177,7 +187,7 @@ function TopBar() {
       </nav>
       <ConnectionStatus />
       <ThemeSwitch />
-      <ConceptSearch />
+      <PaletteTrigger onOpen={onOpenPalette} />
     </header>
   );
 }
@@ -221,62 +231,6 @@ function ThemeSwitch() {
           {t.label}
         </button>
       ))}
-    </div>
-  );
-}
-
-function ConceptSearch() {
-  const [q, setQ] = useState('');
-  const [hits, setHits] = useState<{ id: string; title: string }[]>([]);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (!q.trim()) return setHits([]);
-    const h = setTimeout(() => api.search(q).then(setHits).catch(() => setHits([])), 150);
-    return () => clearTimeout(h);
-  }, [q]);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
-        e.preventDefault();
-        inputRef.current?.focus();
-        inputRef.current?.select();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
-
-  const pick = (id: string) => {
-    openCard(id);
-    setQ('');
-    inputRef.current?.blur();
-  };
-
-  return (
-    <div className="search">
-      <Icon name="search" size={14} />
-      <input
-        ref={inputRef}
-        placeholder="搜索概念…"
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && hits[0]) pick(hits[0].id);
-          if (e.key === 'Escape') setQ('');
-        }}
-      />
-      <kbd>⌘K</kbd>
-      {hits.length > 0 && (
-        <ul className="search-hits">
-          {hits.map((h) => (
-            <li key={h.id}>
-              <button onClick={() => pick(h.id)}>{h.title}</button>
-            </li>
-          ))}
-        </ul>
-      )}
     </div>
   );
 }

@@ -62,7 +62,6 @@ export const api = {
   terms: () => req<{ term: string; cardId: string }[]>('/api/knowledge/terms'),
   card: (id: string) => req<KnowledgeCard>(`/api/knowledge/${encodeURIComponent(id)}`),
   toolCard: (tool: string) => req<KnowledgeCard>(`/api/knowledge/tool/${encodeURIComponent(tool)}`),
-  search: (q: string) => req<KnowledgeIndexEntry[]>(`/api/knowledge/search?q=${encodeURIComponent(q)}`),
   learning: () => req<LearningState>('/api/learning'),
   seen: (cardId: string) => req<LearningState>('/api/learning/seen', { method: 'POST', body: JSON.stringify({ cardId }) }),
   quiz: (cardId: string, correct: boolean) =>
