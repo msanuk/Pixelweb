@@ -390,19 +390,39 @@ dd { margin: 0; word-break: break-all; }
 .touch-label { flex-shrink: 0; display: inline-block; font-size: 11px; width: 18px; text-align: center; border-radius: 3px; background: var(--panel-2); color: var(--muted); }
 .touch-label.edit { background: var(--accent); color: var(--on-accent); }
 
-/* knowledge */
-.knowledge { display: flex; flex-direction: column; height: 100%; }
-.progress { display: flex; gap: 12px; align-items: center; font-size: 12.5px; color: var(--muted); flex-wrap: wrap; }
+/* knowledge: [categories + mastery] [compact list] [placeholder | CardDrawer] */
+.knowledge { display: flex; height: 100%; }
+.kn-side { width: 200px; flex-shrink: 0; border-right: 1px solid var(--border); background: var(--panel); overflow: auto; padding: 6px 0 12px; }
+.kn-side section { margin-bottom: 10px; }
+.kn-side h4 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin: 8px 12px 4px; }
+.kn-facet { width: 100%; display: flex; justify-content: space-between; gap: 8px; text-align: left; background: none; border: none; border-left: 2px solid transparent; border-radius: 0; padding: 4px 12px; }
+.kn-facet:hover { background: var(--panel-2); }
+.kn-facet.selected { background: var(--accent-soft); border-left-color: var(--text); }
+.kn-facet .count { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.kn-progress { padding: 0 12px; }
+.kn-progress h4 { margin-left: 0; margin-right: 0; }
+.kn-progress p { margin: 6px 0 8px; line-height: 1.6; }
 .bar { width: 120px; height: 6px; background: var(--panel-2); border-radius: 3px; overflow: hidden; }
+.kn-progress .bar { width: 100%; }
 .bar i { display: block; height: 100%; background: var(--text); }
-.cat-tabs { display: flex; flex-wrap: wrap; gap: 4px; padding: 10px 16px 0; }
-.cat-tabs button { background: none; white-space: nowrap; }
-.card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); align-content: start; gap: 10px; padding: 12px 16px; overflow: auto; flex: 1; }
-.card { text-align: left; background: var(--panel); border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; }
-.card:hover { border-color: var(--border-strong); }
-.card p { margin: 0; font-size: 12.5px; color: var(--muted); line-height: 1.45; }
-.card-top { display: flex; align-items: center; gap: 4px; }
-.card-top strong { flex: 1; }
+.kn-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.kn-head .search { flex: 1; max-width: 360px; }
+.kn-head .search input { width: 100%; }
+.kn-list { flex: 1; overflow: auto; padding: 4px 0; }
+.kn-row { width: 100%; display: flex; flex-direction: column; gap: 2px; text-align: left; background: none; border: none; border-left: 2px solid transparent; border-radius: 0; padding: 6px 16px 6px 14px; }
+.kn-row:hover { background: var(--panel-2); }
+.kn-row.selected { background: var(--accent-soft); border-left-color: var(--text); }
+.kn-row:focus-visible { outline-offset: -2px; }
+.kn-row-top { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.kn-row-top strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-right: 4px; }
+.kn-row-top .chip { margin: 0; flex-shrink: 0; }
+.kn-row-sub { font-size: 12.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kn-cat { color: var(--text); margin-right: 6px; }
+.kn-empty { padding: 12px 16px; margin: 0; }
+.kn-placeholder dl { font-size: 13px; margin-top: 12px; }
+.kn-placeholder dd { margin: 0; font-variant-numeric: tabular-nums; }
+[data-density="compact"] .kn-row { padding-top: 3px; padding-bottom: 3px; }
+[data-density="compact"] .kn-facet { padding-top: 2px; padding-bottom: 2px; }
 
 /* modal dialog (settings) */
 .modal-backdrop { position: fixed; inset: 0; background: color-mix(in srgb, var(--text) 28%, transparent); display: flex; align-items: flex-start; justify-content: center; padding: 8vh 16px 16px; z-index: 40; }
@@ -433,4 +453,6 @@ dd { margin: 0; word-break: break-all; }
   .search input { width: 110px; }
   .drawer { position: fixed; right: 0; top: 0; bottom: 0; z-index: 30; width: min(360px, 100vw); box-shadow: -8px 0 24px var(--shadow); }
   .git-side, .arch-side { width: 240px; }
+  .kn-side { width: 160px; }
+  .kn-placeholder { display: none; }
 }
