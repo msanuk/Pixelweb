@@ -10,6 +10,7 @@ import type { OcEvent, OcMessageWithParts, OcSession, PermissionResponse } from 
  */
 export interface OpencodeClientOptions {
   baseUrl: string;
+  username?: string;
   password?: string;
   /** Sent as `?directory=` so opencode scopes the call to this project. */
   directory?: string;
@@ -46,7 +47,7 @@ export class OpencodeClient extends EventEmitter {
   private headers(extra: Record<string, string> = {}): Record<string, string> {
     const h: Record<string, string> = { accept: 'application/json', ...extra };
     if (this.opts.password) {
-      h.authorization = 'Basic ' + Buffer.from(`opencode:${this.opts.password}`).toString('base64');
+      h.authorization = 'Basic ' + Buffer.from(`${this.opts.username ?? 'opencode'}:${this.opts.password}`).toString('base64');
     }
     return h;
   }

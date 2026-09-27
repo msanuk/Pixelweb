@@ -13,8 +13,17 @@ import type {
   ServerInfo,
 } from '@pixelweb/shared';
 
+let onUnauthorized = () => {};
+/** Called when any API call answers 401 (session expired, server restarted): the app shows the login screen. */
+export function setUnauthorizedHandler(fn: () => void): void {
+  onUnauthorized = fn;
+}
+
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, { ...init, headers: { 'content-type': 'application/json', ...(init?.headers ?? {}) } });
+  // only declare JSON when there is a body: Fastify rejects an empty body sent as application/json
+  const headers = init?.body ? { 'content-type': 'application/json', ...(init.headers ?? {}) } : init?.headers;
+  const res = await fetch(url, { ...init, headers });
+  if (res.status === 401 && url !== '/api/login') onUnauthorized();
   if (!res.ok) {
     let msg = `${res.status}`;
     try {
@@ -29,6 +38,9 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  auth: () => req<{ required: boolean; authenticated: boolean }>('/api/auth'),
+  login: (password: string) => req<{ ok: boolean }>('/api/login', { method: 'POST', body: JSON.stringify({ password }) }),
+  logout: () => req<{ ok: boolean }>('/api/logout', { method: 'POST' }),
   info: () => req<ServerInfo>('/api/info'),
   sessions: () => req<OcSession[]>('/api/sessions'),
   messages: (id: string) => req<OcMessageWithParts[]>(`/api/sessions/${encodeURIComponent(id)}/messages`),

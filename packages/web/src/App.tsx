@@ -26,6 +26,8 @@ const TABS: { id: Tab; label: string; icon: IconName }[] = [
 export function App() {
   const tab = useStore((s) => s.tab);
   const toast = useStore((s) => s.toast);
+  const needLogin = useStore((s) => s.needLogin);
+  if (needLogin) return <Login />;
   return (
     <div className="app">
       <TopBar />
@@ -47,6 +49,7 @@ export function App() {
 
 function NavRail() {
   const tab = useStore((s) => s.tab);
+  const authRequired = useStore((s) => s.authRequired);
   return (
     <nav className="rail" aria-label="页面">
       {TABS.map((t) => (
@@ -55,7 +58,69 @@ function NavRail() {
           <span>{t.label}</span>
         </button>
       ))}
+      {authRequired && (
+        <button
+          className="rail-bottom"
+          title="退出登录"
+          onClick={() => void api.logout().finally(() => location.reload())}
+        >
+          <Icon name="logout" size={18} />
+          <span>退出</span>
+        </button>
+      )}
     </nav>
+  );
+}
+
+function Login() {
+  const [password, setPassword] = useState('');
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const submit = async () => {
+    if (!password) return setErr('请输入密码');
+    setBusy(true);
+    setErr(null);
+    try {
+      await api.login(password);
+      location.reload(); // start fresh: open the WebSocket and load data with the new session
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+      setBusy(false);
+    }
+  };
+  return (
+    <main className="login">
+      <form
+        className="login-box"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void submit();
+        }}
+      >
+        <h1 className="brand">
+          <span className="logo">▦</span> PixelWeb
+        </h1>
+        <p className="muted small">这个 PixelWeb 设置了访问密码。</p>
+        <input
+          type="password"
+          autoFocus
+          autoComplete="current-password"
+          placeholder="密码"
+          value={password}
+          onChange={(e) => (setPassword(e.target.value), setErr(null))}
+          aria-invalid={!!err}
+          aria-describedby={err ? 'login-err' : undefined}
+        />
+        {err && (
+          <p id="login-err" className="error small">
+            {err}
+          </p>
+        )}
+        <button type="submit" className="primary" disabled={busy}>
+          {busy ? '登录中…' : '登录'}
+        </button>
+      </form>
+    </main>
   );
 }
 

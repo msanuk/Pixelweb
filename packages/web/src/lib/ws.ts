@@ -1,5 +1,5 @@
 import type { ClientMessage, ServerMessage } from '@pixelweb/shared';
-import { applyEvent, setState } from './store';
+import { applyEvent, getState, setState } from './store';
 
 let socket: WebSocket | null = null;
 let retry = 1000;
@@ -13,6 +13,7 @@ export function connect(): void {
   };
   socket.onclose = () => {
     setState({ wsConnected: false });
+    if (getState().needLogin) return; // the login screen reloads the page once signed in
     setTimeout(connect, retry);
     retry = Math.min(retry * 2, 10000);
   };

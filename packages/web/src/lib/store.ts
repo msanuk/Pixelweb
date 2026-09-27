@@ -25,6 +25,10 @@ export interface FeedItem {
 }
 
 export interface State {
+  /** the server has --password set */
+  authRequired: boolean;
+  /** show the login screen instead of the app */
+  needLogin: boolean;
   wsConnected: boolean;
   opencodeConnected: boolean;
   opencodeError?: string;
@@ -54,6 +58,8 @@ export interface State {
 }
 
 const initial: State = {
+  authRequired: false,
+  needLogin: false,
   wsConnected: false,
   opencodeConnected: false,
   sessions: [],

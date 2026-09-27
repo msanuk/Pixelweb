@@ -27,11 +27,13 @@ npm test --workspace=@pixelweb/server -- test/git.test.ts
 npm test --workspace=@pixelweb/server -- -t "parseLog"
 ```
 
-Server config comes from CLI flags or env (`packages/server/src/config.ts`): `--opencode`/`PIXELWEB_OPENCODE_URL` (default `http://127.0.0.1:4096`), `--opencode-password`/`OPENCODE_SERVER_PASSWORD`, `--project`/`PIXELWEB_PROJECT` (default cwd), `--port`/`PIXELWEB_PORT` (7420), `--host`, `--data-dir`/`PIXELWEB_DATA_DIR` (`~/.pixelweb`), `--verbose`.
+Server config comes from CLI flags or env (`packages/server/src/config.ts`): `--opencode`/`PIXELWEB_OPENCODE_URL` (default `http://127.0.0.1:4096`), `--opencode-username`/`OPENCODE_SERVER_USERNAME` (default `opencode`), `--opencode-password`/`OPENCODE_SERVER_PASSWORD`, `--project`/`PIXELWEB_PROJECT` (default cwd), `--port`/`PIXELWEB_PORT` (7420), `--host`, `--password`/`PIXELWEB_PASSWORD` (PixelWeb login), `--data-dir`/`PIXELWEB_DATA_DIR` (`~/.pixelweb`), `--verbose`.
 
 ## Architecture
 
 Data flow: `opencode serve` —SSE (`/global/event`)→ **server** —WebSocket (`/ws`)→ **web**. The browser only ever talks to the PixelWeb server (same origin); the server proxies all OpenCode REST calls under `/api/sessions/*`. Keep it that way — one origin, one place for auth.
+
+Access control lives in `server/src/auth.ts` (`registerAuth`, an `onRequest` hook): there is deliberately **no CORS**; non-GET `/api` requests and the `/ws` handshake must have an `Origin` matching `Host` (or `X-Forwarded-Host`); with `--password`, `/api` and `/ws` also need the `pixelweb_session` HttpOnly cookie from `POST /api/login` (static UI files stay public). The PixelWeb server can prompt the agent and approve shell commands, so treat any new endpoint as privileged. The Vite dev proxy must keep `changeOrigin: false` or the Origin check rejects requests.
 
 - **`packages/shared`** — the contract. Types only, consumed as raw `.ts` (`main: src/index.ts`, no build step). Contains mirror types of OpenCode's SDK (`Oc*`, kept dependency-free on purpose), git/arch/knowledge/learning types, and the WS protocol (`ServerMessage` / `ClientMessage`). Changing a server↔web payload means editing this file first.
 - **`packages/server`** (Fastify, ESM, `NodeNext` — relative imports need `.js` extensions):

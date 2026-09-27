@@ -3,13 +3,13 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import Fastify from 'fastify';
-import cors from '@fastify/cors';
 import fastifyStatic from '@fastify/static';
 import websocket from '@fastify/websocket';
 import type { ClientMessage, ExplainRequest, ExplainResponse, PermissionResponse, ServerInfo, ServerMessage } from '@pixelweb/shared';
 import { loadConfig, printUsage } from './config.js';
 import { OpencodeClient, type GlobalEvent } from './opencode/client.js';
 import { Hub } from './ws.js';
+import { registerAuth } from './auth.js';
 import { GitService } from './git/service.js';
 import { analyseProject } from './analysis/deps.js';
 import { KnowledgeStore } from './knowledge/store.js';
@@ -33,6 +33,7 @@ async function main(): Promise<void> {
   const hub = new Hub();
   const opencode = new OpencodeClient({
     baseUrl: cfg.opencodeUrl,
+    username: cfg.opencodeUsername,
     password: cfg.opencodePassword,
     directory: cfg.projectRoot,
     verbose: cfg.verbose,
@@ -80,7 +81,8 @@ async function main(): Promise<void> {
 
   // ---- http -------------------------------------------------------------------
   const app = Fastify({ logger: false });
-  await app.register(cors, { origin: true });
+  // No CORS: the UI is same-origin (vite proxies in dev), and allowing other origins would let any website drive the agent.
+  registerAuth(app, cfg.password);
   await app.register(websocket);
 
   const publicDir = path.join(PKG_ROOT, 'public');
@@ -251,6 +253,14 @@ async function main(): Promise<void> {
   await app.listen({ port: cfg.port, host: cfg.host });
   console.log(`[pixelweb] v${VERSION} listening on http://${cfg.host}:${cfg.port}${hasUi ? '' : '  (UI not built; run `npm run dev:web` or `npm run build`)'}`);
   console.log(`[pixelweb] project: ${cfg.projectRoot}`);
+  const loopback = ['127.0.0.1', 'localhost', '::1'].includes(cfg.host);
+  if (cfg.password) console.log('[pixelweb] login required (--password)');
+  if (!loopback && !cfg.password) {
+    console.warn(`[pixelweb] WARNING: listening on ${cfg.host} without --password — anyone who can reach this port can prompt the agent and approve its shell commands.`);
+  }
+  if (!loopback && cfg.password) {
+    console.log('[pixelweb] note: plain HTTP sends the password and session cookie unencrypted; put PixelWeb behind HTTPS or an SSH tunnel on untrusted networks.');
+  }
   console.log(`[pixelweb] knowledge cards: ${knowledge.all().length}`);
 
   opencode.start();
