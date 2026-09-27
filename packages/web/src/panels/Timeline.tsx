@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { OcMessageWithParts, OcPart, OcPermission, PermissionResponse } from '@pixelweb/shared';
 import { api } from '../lib/api';
-import { explain, loadMessages, openCard, setState, toast, useStore } from '../lib/store';
+import { explain, getState, loadMessages, openCard, setState, showCommit, showInArch, toast, useStore } from '../lib/store';
 import { displayTitle, fmtDuration, fmtNum, fmtTime } from '../lib/format';
 import { Markdown } from '../components/Markdown';
 import { Highlight } from '../components/Highlight';
 import { DiffStat, DiffView } from '../components/DiffView';
 import { lineDiff, parseUnified, type Diff } from '../lib/diff';
+import { toProjectPath, toolFiles } from '../lib/activity';
 
 const TOOL_CARD: Record<string, string> = {
   bash: 'tool-bash',
@@ -38,13 +39,19 @@ export function Timeline() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const [follow, setFollow] = useState(true);
   const [text, setText] = useState('');
+  const partFocus = useStore((s) => s.partFocus);
 
   useEffect(() => {
     if (sessionID) void loadMessages(sessionID);
   }, [sessionID]);
 
+  // arriving from another panel to look at one tool call: stop pinning the view to the bottom
   useEffect(() => {
-    if (follow) bottomRef.current?.scrollIntoView({ block: 'end' });
+    if (partFocus) setFollow(false);
+  }, [partFocus]);
+
+  useEffect(() => {
+    if (follow && !getState().partFocus) bottomRef.current?.scrollIntoView({ block: 'end' });
   }, [messages, follow]);
 
   const totals = useMemo(() => {
@@ -332,8 +339,34 @@ function ToolPart({ p, sessionTitle }: { p: Extract<OcPart, { type: 'tool' }>; s
   const dur = st.status === 'completed' || st.status === 'error' ? fmtDuration(st.time.end - st.time.start) : null;
   const ctx = `会话「${sessionTitle}」中的工具调用 ${p.tool}\ninput: ${JSON.stringify(st.input).slice(0, 400)}`;
   const diff = useMemo(() => toolDiff(p), [p]);
+  const root = useStore((s) => s.server?.projectRoot ?? s.arch?.root ?? '');
+  const files = useMemo(
+    () => [...new Set(toolFiles(p).map((f) => toProjectPath(f.path, root)).filter((f): f is string => !!f))],
+    [p, root],
+  );
+  const commit = useStore((s) => s.commitLinks.find((l) => l.partID === p.id));
+  const focused = useStore((s) => s.partFocus === p.id);
+  const ref = useRef<HTMLDivElement>(null);
+  const [flash, setFlash] = useState(false);
+
+  useEffect(() => {
+    if (!flash) return;
+    const t = setTimeout(() => setFlash(false), 1600);
+    return () => clearTimeout(t);
+  }, [flash]);
+
+  useEffect(() => {
+    if (!focused) return;
+    setOpen(true);
+    setFlash(true);
+    ref.current?.scrollIntoView({ block: 'center' });
+    // cleared a moment later so the timeline's follow-to-bottom effect in this same render still sees it
+    const t = setTimeout(() => setState({ partFocus: null }), 300);
+    return () => clearTimeout(t);
+  }, [focused]);
+
   return (
-    <div className={`part tool status-${st.status} ${open ? 'open' : ''}`}>
+    <div ref={ref} className={`part tool status-${st.status} ${open ? 'open' : ''} ${flash ? 'flash' : ''}`}>
       <div className="tool-head" onClick={() => setOpen(!open)}>
         <span className={`dot ${st.status}`} />
         <button
@@ -348,6 +381,18 @@ function ToolPart({ p, sessionTitle }: { p: Extract<OcPart, { type: 'tool' }>; s
         </button>
         <span className="tool-title">{title ?? summariseInput(p.tool, st.input)}</span>
         {diff && (diff.additions > 0 || diff.deletions > 0) && <DiffStat diff={diff} />}
+        {commit?.hash && (
+          <button
+            className="chip mono"
+            onClick={(e) => {
+              e.stopPropagation();
+              showCommit(commit.hash!);
+            }}
+            title="在 Git 图中查看这次提交"
+          >
+            {commit.hash.slice(0, 7)}
+          </button>
+        )}
         {st.status === 'error' && <span className="status-label">失败</span>}
         {dur && <span className="muted mono small">{dur}</span>}
         <span className="muted caret">{open ? '▾' : '▸'}</span>
@@ -381,9 +426,21 @@ function ToolPart({ p, sessionTitle }: { p: Extract<OcPart, { type: 'tool' }>; s
               <pre className="error">{st.error}</pre>
             </>
           )}
-          <button className="link-btn" onClick={() => void explain(`${p.tool} 工具在这一步做了什么`, ctx, cardId)} title="开一个只读的教学会话，结合这次调用讲解">
-            让 OpenCode 解释这一步 →
-          </button>
+          <div className="tool-links">
+            {files.slice(0, 3).map((f) => (
+              <button key={f} className="link-btn" onClick={() => showInArch(f)} title="在架构图里选中这个文件所在的模块">
+                在架构图中定位 <span className="mono">{f.split('/').pop()}</span>
+              </button>
+            ))}
+            {commit?.hash && (
+              <button className="link-btn" onClick={() => showCommit(commit.hash!)}>
+                在 Git 图中查看提交 <span className="mono">{commit.hash.slice(0, 7)}</span>
+              </button>
+            )}
+            <button className="link-btn" onClick={() => void explain(`${p.tool} 工具在这一步做了什么`, ctx, cardId)} title="开一个只读的教学会话，结合这次调用讲解">
+              让 OpenCode 解释这一步 →
+            </button>
+          </div>
         </div>
       )}
     </div>

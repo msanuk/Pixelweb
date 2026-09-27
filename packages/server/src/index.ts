@@ -5,12 +5,13 @@ import { fileURLToPath } from 'node:url';
 import Fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
 import websocket from '@fastify/websocket';
-import type { ClientMessage, ExplainRequest, ExplainResponse, PermissionResponse, ServerInfo, ServerMessage } from '@pixelweb/shared';
+import type { ClientMessage, CommitLink, ExplainRequest, ExplainResponse, OcPart, PermissionResponse, ServerInfo, ServerMessage } from '@pixelweb/shared';
 import { loadConfig, printUsage } from './config.js';
 import { OpencodeClient, type GlobalEvent } from './opencode/client.js';
 import { Hub } from './ws.js';
 import { registerAuth } from './auth.js';
 import { GitService } from './git/service.js';
+import { CommitIndex, resolveLinks } from './activity/commits.js';
 import { analyseProject } from './analysis/deps.js';
 import { KnowledgeStore } from './knowledge/store.js';
 import { LearningStore } from './knowledge/learning.js';
@@ -49,7 +50,27 @@ async function main(): Promise<void> {
   let archCache: Awaited<ReturnType<typeof analyseProject>> | null = null;
   let archLevel: 'file' | 'dir' = 'dir';
 
+  const commitIndex = new CommitIndex();
+  let commitLinks: CommitLink[] = [];
+
   await Promise.all([knowledge.load(), learning.load()]);
+
+  /** Re-resolves agent commits against the current log; broadcasts only when something changed. */
+  const publishCommits = () => {
+    const next = resolveLinks(commitIndex.list(), gitSvc.current?.commits ?? []);
+    if (JSON.stringify(next) === JSON.stringify(commitLinks)) return;
+    commitLinks = next;
+    hub.broadcast({ type: 'activity.commits', links: commitLinks });
+  };
+  /** Commits made before PixelWeb started: scan the most recent sessions once OpenCode is reachable. */
+  const backfillCommits = async () => {
+    const sessions = (await opencode.listSessions()).sort((a, b) => b.time.updated - a.time.updated).slice(0, 40);
+    for (let i = 0; i < sessions.length; i += 4) {
+      const batch = await Promise.all(sessions.slice(i, i + 4).map((s) => opencode.messages(s.id).catch(() => [])));
+      for (const msgs of batch) commitIndex.addMessages(msgs);
+    }
+    publishCommits();
+  };
 
   const refreshArch = async (level = archLevel) => {
     archLevel = level;
@@ -59,14 +80,18 @@ async function main(): Promise<void> {
   };
 
   // ---- wiring ----------------------------------------------------------------
+  let wasConnected = false;
   opencode.on('status', (s: { connected: boolean; error?: string }) => {
     hub.broadcast({ type: 'opencode.status', ...s });
+    if (s.connected && !wasConnected) void backfillCommits().catch((e) => console.warn('[pixelweb] commit backfill:', e?.message ?? e));
+    wasConnected = s.connected;
     if (s.connected) console.log(`[pixelweb] connected to opencode at ${cfg.opencodeUrl}`);
     else if (s.error) console.log(`[pixelweb] opencode unreachable (${s.error}); retrying…`);
   });
   opencode.on('event', (ev: GlobalEvent) => {
     hub.broadcast({ type: 'opencode.event', event: ev.payload, directory: ev.directory, receivedAt: Date.now() });
     const t = ev.payload.type;
+    if (t === 'message.part.updated' && commitIndex.addPart((ev.payload.properties as { part: OcPart }).part)) publishCommits();
     if (t === 'file.edited' || t === 'file.watcher.updated' || t === 'session.idle' || t === 'vcs.branch.updated') {
       gitSvc.scheduleRefresh(400);
     }
@@ -76,7 +101,10 @@ async function main(): Promise<void> {
     }
   });
   let archTimer: NodeJS.Timeout | undefined;
-  gitSvc.on('snapshot', (snapshot) => hub.broadcast({ type: 'git.snapshot', snapshot }));
+  gitSvc.on('snapshot', (snapshot) => {
+    hub.broadcast({ type: 'git.snapshot', snapshot });
+    publishCommits(); // a new commit may pin a link that had no hash yet
+  });
   gitSvc.on('error', (e) => console.warn('[pixelweb] git:', e instanceof Error ? e.message : e));
 
   // ---- http -------------------------------------------------------------------
@@ -112,6 +140,7 @@ async function main(): Promise<void> {
     if (gitSvc.current) send({ type: 'git.snapshot', snapshot: gitSvc.current });
     if (archCache) send({ type: 'arch.graph', graph: archCache });
     send({ type: 'learning.state', state: learning.get() });
+    send({ type: 'activity.commits', links: commitLinks });
   });
 
   app.get('/api/info', async (): Promise<ServerInfo> => ({

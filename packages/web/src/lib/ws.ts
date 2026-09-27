@@ -44,6 +44,9 @@ export function connect(): void {
       case 'learning.state':
         setState({ learning: msg.state });
         break;
+      case 'activity.commits':
+        setState({ commitLinks: msg.links });
+        break;
     }
   };
 }

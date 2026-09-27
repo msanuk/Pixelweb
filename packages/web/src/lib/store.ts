@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import type {
   ArchGraph,
+  CommitLink,
   GitSnapshot,
   KnowledgeIndexEntry,
   LearningState,
@@ -43,6 +44,8 @@ export interface State {
   permissions: OcPermission[];
   teachingSessions: Set<string>;
   git: GitSnapshot | null;
+  /** commits the agent made, tied to the tool call that made them */
+  commitLinks: CommitLink[];
   arch: ArchGraph | null;
   knowledge: KnowledgeIndexEntry[];
   terms: { term: string; cardId: string }[];
@@ -55,6 +58,10 @@ export interface State {
   /** context handed to "explain" — what the user was looking at */
   explainContext: string | null;
   toast: string | null;
+  /** one-shot "jump here" requests between panels; the target panel consumes and clears them */
+  archFocus: string | null;
+  gitFocus: string | null;
+  partFocus: string | null;
 }
 
 const initial: State = {
@@ -70,6 +77,7 @@ const initial: State = {
   permissions: [],
   teachingSessions: new Set(),
   git: null,
+  commitLinks: [],
   arch: null,
   knowledge: [],
   terms: [],
@@ -80,6 +88,9 @@ const initial: State = {
   openCard: null,
   explainContext: null,
   toast: null,
+  archFocus: null,
+  gitFocus: null,
+  partFocus: null,
 };
 
 let state: State = initial;
@@ -146,6 +157,22 @@ export async function loadMessages(id: string, force = false): Promise<void> {
   } catch {
     setState((s) => ({ loadingMessages: { ...s.loadingMessages, [id]: false } }));
   }
+}
+
+/** Jump to the architecture graph with the node holding this project-relative file selected. */
+export function showInArch(relPath: string): void {
+  setState({ tab: 'arch', archFocus: relPath, openCard: null });
+}
+
+/** Jump to the git graph with this commit selected. */
+export function showCommit(hash: string): void {
+  setState({ tab: 'git', gitFocus: hash, openCard: null });
+}
+
+/** Open a session's timeline scrolled to one tool call. */
+export async function showPart(sessionID: string, partID: string): Promise<void> {
+  setState({ partFocus: partID, openCard: null });
+  await selectSession(sessionID);
 }
 
 export function openCard(id: string | null, context?: string): void {

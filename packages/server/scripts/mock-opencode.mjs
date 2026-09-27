@@ -1,6 +1,8 @@
 // Minimal stand-in for `opencode serve`, for developing the UI without a real agent.
 // Usage: npm run dev:mock   (serves on 4096; PORT / DIR env override)
 import http from 'node:http';
+import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 const PORT = Number(process.env.PORT ?? 4096);
 const dir = process.env.DIR ?? process.cwd();
 const now = () => Date.now();
@@ -26,6 +28,30 @@ const messages = {
   ],
   ses_2: [],
 };
+
+// A session that read and edited real files of this repo and committed them, so the
+// architecture-graph highlight and the git ↔ session links have something to show.
+try {
+  const git = (...a) => execFileSync('git', a, { cwd: dir, encoding: 'utf8' }).trim();
+  const top = git('rev-parse', '--show-toplevel');
+  const [short, subject, at] = git('log', '-1', '--format=%h%x1f%s%x1f%at').split('\u001f');
+  const t = Number(at) * 1000;
+  const f = (rel) => path.join(top, rel);
+  const tool = (id, name, input, output, start, end = start + 800) => ({ id, sessionID: 'ses_3', messageID: 'm32', type: 'tool', callID: id, tool: name, state: { status: 'completed', input, output, title: name, metadata: {}, time: { start, end } } });
+  sessions.push({ id: 'ses_3', projectID: 'p', directory: dir, title: '提交最近的改动', version: '1', time: { created: t - 60000, updated: t + 2000 } });
+  messages.ses_3 = [
+    { info: { id: 'm31', sessionID: 'ses_3', role: 'user', time: { created: t - 60000 }, agent: 'build', model: { providerID: 'anthropic', modelID: 'claude' } },
+      parts: [{ id: 'p31', sessionID: 'ses_3', messageID: 'm31', type: 'text', text: '把刚才的改动整理一下提交。' }] },
+    { info: { id: 'm32', sessionID: 'ses_3', role: 'assistant', time: { created: t - 59000, completed: t + 2000 }, parentID: 'm31', modelID: 'claude-sonnet-4', providerID: 'anthropic', mode: 'build', cost: 0.004, tokens: { input: 2100, output: 300, reasoning: 0, cache: { read: 0, write: 0 } } },
+      parts: [
+        tool('p32', 'read', { filePath: f('packages/server/src/index.ts') }, '…', t - 50000),
+        tool('p33', 'read', { filePath: f('packages/web/src/panels/ArchGraph.tsx') }, '…', t - 45000),
+        tool('p34', 'edit', { filePath: f('packages/web/src/lib/api.ts'), oldString: 'a', newString: 'b' }, 'ok', t - 40000),
+        tool('p35', 'bash', { command: `git add -A && git commit -m "${subject.replace(/"/g, "'")}"` }, `[main ${short}] ${subject}\n 3 files changed`, t - 500, t + 500),
+        { id: 'p36', sessionID: 'ses_3', messageID: 'm32', type: 'text', text: `已提交 ${short}。` },
+      ] },
+  ];
+} catch { /* not a git checkout: skip the sample */ }
 const clients = new Set();
 const emit = (payload) => { const data = `data: ${JSON.stringify({ directory: dir, payload })}\n\n`; for (const c of clients) c.write(data); };
 const json = (res, code, body) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(body)); };

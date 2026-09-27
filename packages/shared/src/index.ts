@@ -157,6 +157,21 @@ export interface GitSnapshot {
   stashCount: number;
 }
 
+/**
+ * A commit the agent made itself — a completed bash `git commit` tool call —
+ * tied back to the session and tool part that ran it.
+ */
+export interface CommitLink {
+  sessionID: string;
+  messageID: string;
+  partID: string;
+  /** full hash once matched against the git log; else the short hash printed by `git commit`; absent if neither is known */
+  hash?: string;
+  /** when the tool call ran, ms since epoch */
+  start: number;
+  end: number;
+}
+
 // ---- Architecture graph
 
 export interface ArchNode {
@@ -263,7 +278,8 @@ export type ServerMessage =
   | { type: 'opencode.event'; event: OcEvent; directory?: string; receivedAt: number }
   | { type: 'git.snapshot'; snapshot: GitSnapshot }
   | { type: 'arch.graph'; graph: ArchGraph }
-  | { type: 'learning.state'; state: LearningState };
+  | { type: 'learning.state'; state: LearningState }
+  | { type: 'activity.commits'; links: CommitLink[] };
 
 export type ClientMessage =
   | { type: 'git.refresh' }

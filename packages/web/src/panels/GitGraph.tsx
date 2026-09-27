@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { GitCommit, GitSnapshot } from '@pixelweb/shared';
-import { openCard, useStore } from '../lib/store';
+import type { CommitLink, GitCommit, GitSnapshot } from '@pixelweb/shared';
+import { openCard, setState, showPart, useStore } from '../lib/store';
+import { linksForCommit } from '../lib/activity';
 import { send } from '../lib/ws';
-import { fmtDate } from '../lib/format';
+import { displayTitle, fmtDate } from '../lib/format';
 import { Highlight } from '../components/Highlight';
 import { DiffStat, DiffView } from '../components/DiffView';
 import { parseUnified, type Diff } from '../lib/diff';
@@ -78,6 +79,24 @@ export function GitGraph() {
   const [file, setFile] = useState<string | null>(null);
 
   const laid = useMemo(() => (git ? layoutCommits(git.commits) : null), [git]);
+  const links = useStore((s) => s.commitLinks);
+  const focus = useStore((s) => s.gitFocus);
+
+  // "view this commit" from the timeline
+  useEffect(() => {
+    if (!focus || !git) return;
+    const c = git.commits.find((c) => c.hash.startsWith(focus));
+    setState({ gitFocus: null });
+    if (!c) return;
+    setFile(null);
+    setSelected(c.hash);
+    // scroll the list vertically only: scrollIntoView would also shift it sideways and hide the lanes
+    requestAnimationFrame(() => {
+      const row = document.querySelector<HTMLElement>(`[data-hash="${c.hash}"]`);
+      const box = row?.closest<HTMLElement>('.git-graph');
+      if (row && box) box.scrollTop += row.getBoundingClientRect().top - box.getBoundingClientRect().top - box.clientHeight / 2;
+    });
+  }, [focus, git]);
 
   if (!git) {
     return (
@@ -165,7 +184,12 @@ export function GitGraph() {
               const c = r.commit;
               const hit = !q || c.subject.toLowerCase().includes(q) || c.author.toLowerCase().includes(q) || c.refs.join(' ').toLowerCase().includes(q);
               return (
-                <li key={c.hash} className={`commit-row ${selected === c.hash ? 'selected' : ''} ${hit ? '' : 'dim'}`} onClick={() => setSelected(c.hash)}>
+                <li key={c.hash} data-hash={c.hash} className={`commit-row ${selected === c.hash ? 'selected' : ''} ${hit ? '' : 'dim'}`} onClick={() => setSelected(c.hash)}>
+                  {linksForCommit(links, c.hash).length > 0 && (
+                    <span className="chip agent" title="由 OpenCode 会话提交">
+                      agent
+                    </span>
+                  )}
                   {c.refs.map((ref) => (
                     <RefChip key={ref} refName={ref} />
                   ))}
@@ -181,7 +205,7 @@ export function GitGraph() {
 
         {!cardOpen && (
         <aside className="git-side">
-          {sel ? <CommitDetail c={sel} git={git} /> : <p className="muted">点击一个提交查看详情。</p>}
+          {sel ? <CommitDetail c={sel} git={git} links={linksForCommit(links, sel.hash)} /> : <p className="muted">点击一个提交查看详情。</p>}
           <section>
             <h4>
               <button className="term" onClick={() => openCard('staging-area', git.status.map((s) => `${s.code} ${s.path}`).join('\n'))}>
@@ -284,8 +308,9 @@ function RefChip({ refName }: { refName: string }) {
   );
 }
 
-function CommitDetail({ c, git }: { c: GitCommit; git: GitSnapshot }) {
+function CommitDetail({ c, git, links }: { c: GitCommit; git: GitSnapshot; links: CommitLink[] }) {
   const isMerge = c.parents.length > 1;
+  const sessions = useStore((s) => s.sessions);
   return (
     <section className="commit-detail">
       <h4>
@@ -312,6 +337,16 @@ function CommitDetail({ c, git }: { c: GitCommit; git: GitSnapshot }) {
           </>
         )}
       </dl>
+      {links.length > 0 && (
+        <div className="commit-origin">
+          <h5>来自会话</h5>
+          {links.map((l) => (
+            <button key={l.partID} className="link-btn" onClick={() => void showPart(l.sessionID, l.partID)} title="打开时间线，定位到执行 git commit 的那一步">
+              {displayTitle(sessions.find((s) => s.id === l.sessionID)?.title ?? l.sessionID)} →
+            </button>
+          ))}
+        </div>
+      )}
     </section>
   );
 }

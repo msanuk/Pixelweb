@@ -220,6 +220,9 @@ h2, h3, h4, h5 { margin: 0.4em 0; }
 .tool-body pre { background: var(--panel); }
 .tool-body .link-btn { font-size: 12px; margin-top: 6px; color: var(--muted); }
 .tool-body .link-btn:hover { color: var(--text); }
+.tool-links { display: flex; flex-wrap: wrap; gap: 4px 16px; }
+.part.tool.flash { animation: flash 1.6s ease-out; }
+@keyframes flash { from { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--text); } to { background: transparent; box-shadow: inset 2px 0 0 transparent; } }
 .composer { display: flex; gap: 8px; padding: 10px 16px; border-top: 1px solid var(--border); background: var(--panel); }
 .composer input { flex: 1; }
 .follow { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 4px; white-space: nowrap; }
@@ -265,6 +268,9 @@ h2, h3, h4, h5 { margin: 0.4em 0; }
 .chip.link { cursor: pointer; }
 .chip.link:hover { border-color: var(--border-strong); }
 .chip.warn { border-color: var(--warn); color: var(--warn); }
+.chip.agent { font-family: var(--mono); font-size: 10px; color: var(--muted); }
+.commit-origin h5 { margin: 10px 0 4px; font-size: 11px; text-transform: uppercase; color: var(--muted); }
+.commit-origin .link-btn { display: block; font-size: 13px; margin: 2px 0; text-align: left; }
 .chip.err { border-color: var(--bad); color: var(--bad); }
 .chip.teach { background: var(--accent-soft); border-color: var(--border-strong); }
 .chip.active { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
@@ -301,7 +307,7 @@ h2, h3, h4, h5 { margin: 0.4em 0; }
 .git-graph { flex: 1; overflow: auto; display: flex; padding: 5px 0 5px 6px; }
 .graph-svg { flex-shrink: 0; }
 .commit-dot { cursor: pointer; }
-.commit-list { list-style: none; margin: 0; padding: 0; flex: 1; }
+.commit-list { list-style: none; margin: 0; padding: 0; flex: 1; min-width: 0; }
 .commit-row { height: var(--row-h); display: flex; align-items: center; gap: 8px; padding: 0 10px; cursor: pointer; white-space: nowrap; overflow: hidden; border-radius: 6px; }
 .commit-row:hover { background: var(--panel-2); }
 .commit-row.selected { background: var(--accent-soft); }
@@ -340,11 +346,22 @@ dd { margin: 0; word-break: break-all; }
 .edge.dim { opacity: 0.12; }
 .node { cursor: pointer; }
 .node.dim { opacity: 0.2; }
-.node.selected circle { stroke-width: 3; stroke: var(--text); }
+.node.selected circle:not(.touch-ring) { stroke-width: 3; stroke: var(--text); }
+/* files the selected session touched: solid ring = edited, dashed = only read */
+.touch-ring { fill: none; pointer-events: none; }
+.touch-ring.edit { stroke: var(--text); stroke-width: 2; }
+.touch-ring.read { stroke: var(--muted); stroke-width: 1.5; stroke-dasharray: 3 3; }
 .node-label { font-size: 10.5px; fill: var(--text); pointer-events: none; font-family: var(--mono); paint-order: stroke; stroke: var(--bg); stroke-width: 3px; stroke-linejoin: round; }
 .legend { list-style: none; padding: 0; margin: 0; }
 .legend i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 5px; opacity: 0.8; }
 .legend i.hollow { border: 1px dashed var(--muted); opacity: 1; }
+.legend i.ring { background: none; opacity: 1; width: 8px; height: 8px; }
+.legend i.ring.edit { border: 2px solid var(--text); }
+.legend i.ring.read { border: 1.5px dashed var(--muted); }
+.touched-list { list-style: none; margin: 0; padding: 0; font-size: 12.5px; }
+.touched-list li { display: flex; gap: 6px; align-items: baseline; padding: 2px 0; overflow-wrap: anywhere; }
+.touch-label { flex-shrink: 0; display: inline-block; font-size: 11px; width: 18px; text-align: center; border-radius: 3px; background: var(--panel-2); color: var(--muted); }
+.touch-label.edit { background: var(--accent); color: var(--on-accent); }
 
 /* knowledge */
 .knowledge { display: flex; flex-direction: column; height: 100%; }

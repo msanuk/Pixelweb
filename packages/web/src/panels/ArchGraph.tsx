@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { forceCenter, forceCollide, forceLink, forceManyBody, forceSimulation, forceX, forceY, type SimulationLinkDatum, type SimulationNodeDatum } from 'd3-force';
 import type { ArchGraph as Graph, ArchNode } from '@pixelweb/shared';
-import { explain, openCard, useStore } from '../lib/store';
+import { explain, loadMessages, openCard, setState, toast, useStore } from '../lib/store';
+import { nodeForPath, sessionFiles, type Touch } from '../lib/activity';
+import { displayTitle } from '../lib/format';
 import { send } from '../lib/ws';
 import { Highlight } from '../components/Highlight';
 
@@ -32,6 +34,15 @@ export function ArchGraph() {
   const cardOpen = useStore((s) => s.openCard !== null);
   const svgRef = useRef<SVGSVGElement>(null);
   const size = useSize(svgRef);
+  const [showSession, setShowSession] = useState(true);
+  const sessionID = useStore((s) => s.selectedSession);
+  const sessionTitle = useStore((s) => s.sessions.find((x) => x.id === s.selectedSession)?.title);
+  const messages = useStore((s) => (s.selectedSession ? s.messages[s.selectedSession] : undefined));
+  const focus = useStore((s) => s.archFocus);
+
+  useEffect(() => {
+    if (sessionID) void loadMessages(sessionID);
+  }, [sessionID]);
 
   useEffect(() => {
     if (graph && graph.level !== level) send({ type: 'arch.refresh', level });
@@ -66,6 +77,32 @@ export function ArchGraph() {
     }));
     return { nodes, links };
   }, [graph, showExternal]);
+
+  // files the selected session read or edited, grouped by the node they fall in
+  const touched = useMemo(() => (graph ? sessionFiles(messages, graph.root) : new Map<string, Touch>()), [messages, graph]);
+  const nodeTouch = useMemo(() => {
+    const m = new Map<string, { edited: boolean; files: [string, Touch][] }>();
+    if (!sim) return m;
+    const nodes = sim.nodes.map((n) => n.node);
+    for (const [file, touch] of touched) {
+      const node = nodeForPath(nodes, file);
+      if (!node) continue;
+      const entry = m.get(node.id) ?? { edited: false, files: [] };
+      entry.files.push([file, touch]);
+      entry.edited ||= touch === 'edit';
+      m.set(node.id, entry);
+    }
+    return m;
+  }, [touched, sim]);
+
+  // "locate in architecture graph" from the timeline
+  useEffect(() => {
+    if (!focus || !sim) return;
+    setState({ archFocus: null });
+    const node = nodeForPath(sim.nodes.map((n) => n.node), focus);
+    if (node) setSelected(node.id);
+    else toast(`${focus} 不在依赖图里（只分析 TS / JS / Python 源码）`);
+  }, [focus, sim]);
 
   useEffect(() => {
     if (!sim || !size.w) return;
@@ -106,6 +143,9 @@ export function ArchGraph() {
     if (t === selected) neighbours.add(s);
   }
   const cyclicCount = sim ? sim.links.filter((l) => l.cyclic).length / 2 : 0;
+  const editedCount = [...touched.values()].filter((t) => t === 'edit').length;
+  const ringsOn = showSession && nodeTouch.size > 0;
+  const selTouch = selNode ? nodeTouch.get(selNode.id) : undefined;
 
   return (
     <div className="arch">
@@ -126,6 +166,12 @@ export function ArchGraph() {
           {graph.stats.skipped > 0 && <span className="muted"> · 已跳过 {graph.stats.skipped} 个生成或超限文件</span>}
         </div>
         <div className="actions">
+          {touched.size > 0 && (
+            <label className="follow" title={`高亮会话「${displayTitle(sessionTitle ?? '')}」读过和改过的文件`}>
+              <input type="checkbox" checked={showSession} onChange={(e) => setShowSession(e.target.checked)} /> 本会话 · 改 {editedCount} · 读{' '}
+              {touched.size - editedCount}
+            </label>
+          )}
           <label className="follow">
             <input type="checkbox" checked={showExternal} onChange={(e) => setShowExternal(e.target.checked)} /> 外部包
           </label>
@@ -177,8 +223,10 @@ export function ArchGraph() {
               if (!p) return null;
               const dim = selected && selected !== n.id && !neighbours.has(n.id);
               const color = n.node.kind === 'external' ? EXTERNAL_COLOR : n.node.kind === 'file' ? LANG_COLOR[n.node.language ?? 'other'] : DIR_COLOR;
+              const touch = ringsOn ? nodeTouch.get(n.id) : undefined;
               return (
                 <g key={n.id} transform={`translate(${p.x},${p.y})`} className={`node ${dim ? 'dim' : ''} ${selected === n.id ? 'selected' : ''}`} onClick={() => setSelected(n.id === selected ? null : n.id)}>
+                  {touch && <circle r={n.r + 4} className={`touch-ring ${touch.edited ? 'edit' : 'read'}`} />}
                   <circle r={n.r} fill={color} fillOpacity={n.node.kind === 'external' ? 0.12 : 0.45} stroke={color} strokeDasharray={n.node.kind === 'external' ? '3 2' : undefined} />
                   <text dy={n.r + 12} textAnchor="middle" className="node-label">
                     {n.node.label}
@@ -194,6 +242,8 @@ export function ArchGraph() {
               <li><i style={{ background: LANG_COLOR.js }} /> JS</li>
               <li><i style={{ background: LANG_COLOR.py }} /> Python</li>
               {showExternal && <li><i className="hollow" /> 外部包</li>}
+              {ringsOn && <li><i className="ring edit" /> 本会话改过</li>}
+              {ringsOn && <li><i className="ring read" /> 只读过</li>}
             </ul>
             <p className="muted small">
               大小 = 代码行 · 粗细 = <Highlight text="import" /> 数 · 红边 ={' '}
@@ -225,6 +275,19 @@ export function ArchGraph() {
                 <dt>依赖他人（出边）</dt>
                 <dd>{selNode.outDeg}</dd>
               </dl>
+              {selTouch && (
+                <>
+                  <h5>本会话在这里</h5>
+                  <ul className="touched-list">
+                    {selTouch.files.map(([f, t]) => (
+                      <li key={f}>
+                        <span className={`touch-label ${t}`}>{t === 'edit' ? '改' : '读'}</span>
+                        <span className="mono">{f}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
               <h5>相邻节点</h5>
               <ul className="neighbour-list">
                 {[...neighbours].map((id) => (
