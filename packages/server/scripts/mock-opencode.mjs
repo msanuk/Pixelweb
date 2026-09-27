@@ -105,7 +105,7 @@ http.createServer((req, res) => {
         emit({ type: 'message.updated', properties: { info: um } });
         emit({ type: 'message.part.updated', properties: { part: messages[id].at(-1).parts[0] } });
         emit({ type: 'session.status', properties: { sessionID: id, status: { type: 'busy' } } });
-        const am = { id: 'm' + counter++, sessionID: id, role: 'assistant', time: { created: now() }, parentID: um.id, modelID: 'mock-model', providerID: 'mock', cost: 0, tokens: { input: 100, output: 0, reasoning: 0, cache: { read: 0, write: 0 } } };
+        const am = { id: 'm' + counter++, sessionID: id, role: 'assistant', time: { created: now() }, parentID: um.id, modelID: 'claude-sonnet-4', providerID: 'anthropic', cost: 0, tokens: { input: 100, output: 0, reasoning: 0, cache: { read: 0, write: 0 } } };
         messages[id].push({ info: am, parts: [] });
         setTimeout(() => emit({ type: 'message.updated', properties: { info: am } }), 200);
         const stream = (reply) => {

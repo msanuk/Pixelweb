@@ -9,22 +9,10 @@ import { DiffStat, DiffView } from '../components/DiffView';
 import { lineDiff, parseUnified, type Diff } from '../lib/diff';
 import { toProjectPath, toolFiles } from '../lib/activity';
 import { contextUsage } from '../lib/context';
+import { cardForTool } from '../lib/tools';
+import { summarizeSession } from '../lib/summary';
+import { buildMatcher } from '../lib/terms';
 
-const TOOL_CARD: Record<string, string> = {
-  bash: 'tool-bash',
-  read: 'tool-read-edit',
-  edit: 'tool-read-edit',
-  write: 'tool-read-edit',
-  multiedit: 'tool-read-edit',
-  patch: 'tool-read-edit',
-  grep: 'tool-search',
-  glob: 'tool-search',
-  list: 'tool-search',
-  webfetch: 'tool-webfetch',
-  task: 'tool-task',
-  todowrite: 'tool-todo',
-  todoread: 'tool-todo',
-};
 
 export function Timeline() {
   const sessionID = useStore((s) => s.selectedSession);
@@ -153,6 +141,9 @@ export function Timeline() {
       }}>
         {loading && !messages && <p className="muted">加载消息…</p>}
         {messages?.map((m) => <Message key={m.info.id} m={m} sessionTitle={session?.title ?? ''} />)}
+        {status !== 'busy' && messages?.some((m) => m.info.role === 'assistant') && (
+          <SessionRecap messages={messages} sessionID={sessionID} sessionTitle={session ? displayTitle(session.title) : sessionID} />
+        )}
         <div ref={bottomRef} />
       </div>
 
@@ -175,6 +166,93 @@ export function Timeline() {
         </button>
       </form>
     </div>
+  );
+}
+
+/**
+ * Recap under an idle session: what happened, and which concepts came up —
+ * the ones you haven't mastered first, each opening its card.
+ */
+function SessionRecap({ messages, sessionID, sessionTitle }: { messages: OcMessageWithParts[]; sessionID: string; sessionTitle: string }) {
+  const terms = useStore((s) => s.terms);
+  const knowledge = useStore((s) => s.knowledge);
+  const records = useStore((s) => s.learning.records);
+  const root = useStore((s) => s.server?.projectRoot ?? s.arch?.root ?? '');
+  const commits = useStore((s) => s.commitLinks);
+  const isTeaching = useStore((s) => s.teachingSessions.has(sessionID));
+  const matcher = useMemo(() => buildMatcher(terms), [terms]);
+  const sum = useMemo(() => summarizeSession(messages, matcher, root), [messages, matcher, root]);
+  const commitCount = useMemo(() => commits.filter((l) => l.sessionID === sessionID).length, [commits, sessionID]);
+
+  const titleOf = (id: string) => knowledge.find((k) => k.id === id)?.title ?? id;
+  const open = sum.concepts.filter((c) => records[c.cardId]?.mastery !== 'mastered');
+  const done = sum.concepts.filter((c) => records[c.cardId]?.mastery === 'mastered');
+  const ctx = (c: { cardId: string; count: number }) => `在会话「${sessionTitle}」里出现了 ${c.count} 次`;
+
+  return (
+    <details className="recap" open>
+      <summary>
+        <span className="strong">会话小结</span>
+        <span className="muted">
+          {sum.turns} 轮 · {sum.toolCalls} 次工具调用{sum.toolErrors ? `（失败 ${sum.toolErrors}）` : ''}
+          {sum.edited.length > 0 && ` · 改了 ${sum.edited.length} 个文件`}
+          {commitCount > 0 && ` · ${commitCount} 次提交`}
+          {sum.cost > 0 && ` · $${sum.cost.toFixed(4)}`}
+        </span>
+      </summary>
+      {sum.edited.length > 0 && (
+        <p className="recap-files">
+          {sum.edited.slice(0, 8).map((f) => (
+            <button key={f} className="chip mono link" onClick={() => showInArch(f)} title="在架构图中定位">
+              {f.split('/').pop()}
+            </button>
+          ))}
+          {sum.edited.length > 8 && <span className="muted small">等 {sum.edited.length} 个</span>}
+        </p>
+      )}
+      {sum.concepts.length > 0 ? (
+        <>
+          <h5>{open.length > 0 ? `碰到的概念 · ${open.length} 个还没掌握` : '碰到的概念都已掌握'}</h5>
+          <p className="recap-concepts">
+            {open.map((c) => (
+              <button key={c.cardId} className={`chip link ${records[c.cardId] ? '' : 'new'}`} onClick={() => openCard(c.cardId, ctx(c))} title={records[c.cardId] ? '看过，还没掌握' : '还没看过'}>
+                {titleOf(c.cardId)}
+                {c.count > 1 && <span className="muted"> ×{c.count}</span>}
+              </button>
+            ))}
+          </p>
+          {done.length > 0 && (
+            <details className="recap-done">
+              <summary className="muted small">已掌握 {done.length} 个</summary>
+              <p className="recap-concepts">
+                {done.map((c) => (
+                  <button key={c.cardId} className="chip link" onClick={() => openCard(c.cardId, ctx(c))}>
+                    {titleOf(c.cardId)}
+                  </button>
+                ))}
+              </p>
+            </details>
+          )}
+          {open.length > 0 && !isTeaching && (
+            <button
+              className="link-btn"
+              onClick={() =>
+                void explain(
+                  `${sessionTitle} · ${Math.min(open.length, 6)} 个概念`,
+                  `请结合会话「${sessionTitle}」实际做的事，依次讲这些概念：${open.slice(0, 6).map((c) => titleOf(c.cardId)).join('、')}。\n` +
+                    `这次会话：${sum.turns} 轮，${sum.toolCalls} 次工具调用，改了 ${sum.edited.slice(0, 10).join(', ') || '（没有文件）'}。`,
+                )
+              }
+              title="开一个只读的教学会话，拿这次会话当例子讲"
+            >
+              让 OpenCode 结合这次会话讲讲 →
+            </button>
+          )}
+        </>
+      ) : (
+        <p className="muted small">这次会话里没有出现知识库里的概念。</p>
+      )}
+    </details>
   );
 }
 
@@ -384,7 +462,7 @@ function Part({ p, sessionTitle }: { p: OcPart; sessionTitle: string }) {
 function ToolPart({ p, sessionTitle }: { p: Extract<OcPart, { type: 'tool' }>; sessionTitle: string }) {
   const [open, setOpen] = useState(false);
   const st = p.state;
-  const cardId = TOOL_CARD[p.tool.toLowerCase()] ?? (p.tool.includes('_') ? 'mcp' : 'tool-call');
+  const cardId = cardForTool(p.tool);
   const title = st.status === 'completed' || st.status === 'running' ? (st as any).title : undefined;
   const dur = st.status === 'completed' || st.status === 'error' ? fmtDuration(st.time.end - st.time.start) : null;
   const ctx = `会话「${sessionTitle}」中的工具调用 ${p.tool}\ninput: ${JSON.stringify(st.input).slice(0, 400)}`;

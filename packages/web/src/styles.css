@@ -235,6 +235,17 @@ h2, h3, h4, h5 { margin: 0.4em 0; }
 [data-density="compact"] .part.text p { margin: 0.3em 0; }
 [data-density="compact"] .tool-head { padding: 1px 8px; min-height: 22px; }
 [data-density="compact"] .session-item { padding: 3px 12px; }
+/* session recap under an idle timeline */
+.recap { border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; background: var(--panel); font-size: 13px; }
+.recap > summary { cursor: pointer; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.recap h5 { margin: 10px 0 4px; font-size: 11px; text-transform: uppercase; color: var(--muted); }
+.recap-files, .recap-concepts { display: flex; flex-wrap: wrap; gap: 4px; margin: 8px 0 0; }
+.recap .chip { margin: 0; font-size: 12px; }
+.recap .chip.new { border-color: var(--border-strong); font-weight: 600; }
+.recap-done { margin-top: 6px; }
+.recap-done summary { cursor: pointer; }
+.recap > .link-btn { display: inline-block; margin-top: 10px; font-size: 12px; color: var(--muted); }
+.recap > .link-btn:hover { color: var(--text); }
 .part.tool.flash { animation: flash 1.6s ease-out; }
 @keyframes flash { from { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--text); } to { background: transparent; box-shadow: inset 2px 0 0 transparent; } }
 .composer { display: flex; gap: 8px; padding: 10px 16px; border-top: 1px solid var(--border); background: var(--panel); }
