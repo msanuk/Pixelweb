@@ -44,6 +44,7 @@ export const api = {
   logout: () => req<{ ok: boolean }>('/api/logout', { method: 'POST' }),
   info: () => req<ServerInfo>('/api/info'),
   models: () => req<ModelInfo>('/api/models'),
+  permissions: () => req<Record<string, unknown>[]>('/api/permissions'),
   sessions: () => req<OcSession[]>('/api/sessions'),
   messages: (id: string) => req<OcMessageWithParts[]>(`/api/sessions/${encodeURIComponent(id)}/messages`),
   abort: (id: string) => req(`/api/sessions/${encodeURIComponent(id)}/abort`, { method: 'POST' }),

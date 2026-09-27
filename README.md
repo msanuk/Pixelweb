@@ -62,6 +62,7 @@ node packages/server/dist/index.js --project /path/to/project --host 0.0.0.0 --p
 
 - PixelWeb 能替你给 agent 发 prompt、批准它执行 shell 命令。**不设 `--password` 就不要监听 127.0.0.1 以外的地址**，启动时也会给出警告。
 - 普通 HTTP 下密码和登录 cookie 是明文传输的。在不可信的网络上，请放到 HTTPS 反向代理后面，或者不开放端口、改用 SSH 隧道：`ssh -L 7420:127.0.0.1:7420 user@server`。
+- 浏览器只在 HTTPS 或 localhost 下允许系统通知。通过 `http://服务器IP:7420` 访问时，设置里的“提醒”只能在标签页标题上显示未读数；用 SSH 隧道访问 `http://localhost:7420` 就能收到系统通知。
 - 反向代理需要保留 `Host` 或传 `X-Forwarded-Host`：PixelWeb 会拒绝来源（Origin）与之不符的写请求和 WebSocket 连接。
 - `npm run dev` 依赖 shell 的 `&`，在 Windows 上请用 `npm run build` 加 `npm start`。
 

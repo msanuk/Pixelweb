@@ -56,7 +56,7 @@ const clients = new Set();
 const emit = (payload) => { const data = `data: ${JSON.stringify({ directory: dir, payload })}\n\n`; for (const c of clients) c.write(data); };
 const json = (res, code, body) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(body)); };
 let counter = 10;
-const pendingPermissions = new Map(); // permissionID -> continue(response)
+const pendingPermissions = new Map(); // requestID -> { request, resume(reply) }
 const readBody = (req) => new Promise((r) => { let b = ''; req.on('data', (c) => (b += c)); req.on('end', () => r(JSON.parse(b || '{}'))); });
 http.createServer((req, res) => {
   const u = new URL(req.url, 'http://x');
@@ -76,15 +76,18 @@ http.createServer((req, res) => {
       const b = JSON.parse(body || '{}'); const s = { id: 'ses_' + counter++, projectID: 'p', directory: dir, title: b.title ?? 'new', version: '1', time: { created: now(), updated: now() } };
       sessions.unshift(s); messages[s.id] = []; emit({ type: 'session.created', properties: { info: s } }); json(res, 200, s); }); return;
   }
-  const pm = /^\/session\/([^/]+)\/permissions\/([^/]+)$/.exec(p);
+  // permissions, OpenCode 1.x style: GET /permission, POST /permission/:id/reply { reply }; plus the deprecated per-session route
+  if (p === '/permission' && req.method === 'GET') return json(res, 200, [...pendingPermissions.values()].map((x) => x.request));
+  const pm = /^\/permission\/([^/]+)\/reply$/.exec(p) ?? /^\/session\/[^/]+\/permissions\/([^/]+)$/.exec(p);
   if (pm && req.method === 'POST') {
-    const [, id, permissionID] = pm;
+    const [, requestID] = pm;
     readBody(req).then((b) => {
-      const resume = pendingPermissions.get(permissionID);
-      if (!resume) return json(res, 404, { error: 'no such permission' });
-      pendingPermissions.delete(permissionID);
-      emit({ type: 'permission.replied', properties: { sessionID: id, permissionID, response: b.response } });
-      resume(b.response);
+      const pending = pendingPermissions.get(requestID);
+      if (!pending) return json(res, 404, { error: 'no such permission' });
+      const reply = b.reply ?? b.response;
+      pendingPermissions.delete(requestID);
+      emit({ type: 'permission.replied', properties: { sessionID: pending.request.sessionID, requestID, reply } });
+      pending.resume(reply);
       json(res, 200, true);
     });
     return;
@@ -118,11 +121,13 @@ http.createServer((req, res) => {
           stream(`**Webhook**（网络钩子）：服务端在事件发生时主动向你登记的 URL 发 HTTP 请求。\n\n在这个项目里，PixelWeb 用的是 SSE 而非 webhook。\n\n检索练习：Webhook 与 SSE 谁先建立连接？`);
         } else {
           // normal prompts ask for permission to run a command first, like opencode's bash tool does
-          const permissionID = 'per_' + counter++;
-          pendingPermissions.set(permissionID, (response) =>
-            stream(response === 'reject' ? `好的，不运行 \`npm test\`。收到：${text}` : `已运行 \`npm test\`（${response === 'always' ? '已记住，以后不再询问' : '仅这一次'}）。收到：${text}`),
-          );
-          setTimeout(() => emit({ type: 'permission.updated', properties: { id: permissionID, type: 'bash', pattern: 'npm test', sessionID: id, messageID: am.id, callID: 'call_' + permissionID, title: 'npm test', metadata: { command: 'npm test' }, time: { created: now() } } }), 400);
+          const requestID = 'per_' + counter++;
+          const request = { id: requestID, sessionID: id, permission: 'bash', patterns: ['npm test'], metadata: {}, always: ['npm *'], tool: { messageID: am.id, callID: 'call_' + requestID } };
+          pendingPermissions.set(requestID, {
+            request,
+            resume: (reply) => stream(reply === 'reject' ? `好的，不运行 \`npm test\`。收到：${text}` : `已运行 \`npm test\`（${reply === 'always' ? '已记住，以后不再询问' : '仅这一次'}）。收到：${text}`),
+          });
+          setTimeout(() => emit({ type: 'permission.asked', properties: request }), 400);
         }
         json(res, 200, op === 'prompt_async' ? {} : { info: am, parts: [] });
       }); return;

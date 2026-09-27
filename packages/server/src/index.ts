@@ -187,6 +187,13 @@ async function main(): Promise<void> {
       return reply.code(502).send({ error: String(e instanceof Error ? e.message : e) });
     }
   });
+  app.get('/api/permissions', async (_req, reply) => {
+    try {
+      return await opencode.listPermissions();
+    } catch (e) {
+      return reply.code(502).send({ error: String(e instanceof Error ? e.message : e) });
+    }
+  });
   app.post<{ Params: { id: string; permissionID: string }; Body: { response: PermissionResponse } }>(
     '/api/sessions/:id/permissions/:permissionID',
     async (req, reply) => {

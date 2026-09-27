@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { openCard, useStore } from '../lib/store';
 import { buildMatcher, splitByTerms } from '../lib/terms';
+import { useSettings } from '../lib/settings';
 
 let cache: { key: number; matcher: ReturnType<typeof buildMatcher> } | null = null;
 
@@ -14,6 +15,8 @@ export function Highlight({ text, context }: { text: string; context?: string })
     return m;
   }, [terms]);
   const pieces = useMemo(() => splitByTerms(text, matcher), [text, matcher]);
+  const enabled = useSettings().highlightTerms;
+  if (!enabled) return <>{text}</>;
   return (
     <>
       {pieces.map((p, i) =>

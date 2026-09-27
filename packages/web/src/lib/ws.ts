@@ -1,5 +1,6 @@
 import type { ClientMessage, ServerMessage } from '@pixelweb/shared';
 import { applyEvent, getState, loadModels, setState } from './store';
+import { onOpencodeEvent } from './notify';
 
 let socket: WebSocket | null = null;
 let retry = 1000;
@@ -33,9 +34,13 @@ export function connect(): void {
         setState({ opencodeConnected: msg.connected, opencodeError: msg.error });
         if (msg.connected && !getState().modelInfo && !getState().needLogin) void loadModels();
         break;
-      case 'opencode.event':
+      case 'opencode.event': {
+        const sid = (msg.event.properties as { sessionID?: string }).sessionID;
+        const prevStatus = sid ? getState().status[sid] : undefined;
         applyEvent(msg.event, msg.receivedAt);
+        onOpencodeEvent(msg.event, prevStatus);
         break;
+      }
       case 'git.snapshot':
         setState({ git: msg.snapshot });
         break;

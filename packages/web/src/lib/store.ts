@@ -16,6 +16,7 @@ import type {
 } from '@pixelweb/shared';
 import { api } from './api';
 import { displayTitle } from './format';
+import { normalizePermission, repliedPermissionID } from './permissions';
 
 export type Tab = 'timeline' | 'git' | 'arch' | 'knowledge';
 
@@ -132,7 +133,18 @@ export async function loadInitial(): Promise<void> {
   setState({ knowledge, terms, learning });
   await refreshSessions();
   void loadModels();
+  void loadPermissions();
   api.info().then((i) => setState({ teachingSessions: new Set(i.teachingSessions) })).catch(() => {});
+}
+
+/** Requests already waiting when the page opened (events only bring new ones). */
+export async function loadPermissions(): Promise<void> {
+  try {
+    const pending = (await api.permissions()).map(normalizePermission).filter((p): p is OcPermission => !!p);
+    setState((s) => ({ permissions: [...s.permissions.filter((x) => !pending.some((p) => p.id === x.id)), ...pending] }));
+  } catch {
+    /* OpenCode not reachable: live events still arrive once it is */
+  }
 }
 
 export async function loadModels(): Promise<void> {
@@ -230,7 +242,8 @@ function summarise(ev: OcEvent): string {
     case 'file.edited':
       return `edited ${p.file}`;
     case 'permission.updated':
-      return `permission: ${p.title}`;
+    case 'permission.asked':
+      return `permission: ${normalizePermission(p)?.title ?? ''}`;
     case 'session.created':
     case 'session.updated':
       return p.info?.title ?? '';
@@ -293,13 +306,15 @@ export function applyEvent(ev: OcEvent, at: number): void {
       }
       break;
     }
-    case 'permission.updated': {
-      const perm = p as unknown as OcPermission;
-      patch.permissions = [...state.permissions.filter((x) => x.id !== perm.id), perm];
+    case 'permission.updated':
+    case 'permission.asked': {
+      const perm = normalizePermission(p);
+      if (perm) patch.permissions = [...state.permissions.filter((x) => x.id !== perm.id), perm];
       break;
     }
     case 'permission.replied': {
-      patch.permissions = state.permissions.filter((x) => x.id !== p.permissionID);
+      const id = repliedPermissionID(p);
+      patch.permissions = state.permissions.filter((x) => x.id !== id);
       break;
     }
     case 'todo.updated': {

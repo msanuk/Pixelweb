@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { CardDrawer } from './components/CardDrawer';
+import { SettingsDialog } from './components/Settings';
 import { Icon, type IconName } from './components/Icon';
 import { Timeline } from './panels/Timeline';
 import { GitGraph } from './panels/GitGraph';
@@ -27,12 +28,25 @@ export function App() {
   const tab = useStore((s) => s.tab);
   const toast = useStore((s) => s.toast);
   const needLogin = useStore((s) => s.needLogin);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === ',') {
+        e.preventDefault();
+        setSettingsOpen((o) => !o);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   if (needLogin) return <Login />;
   return (
     <div className="app">
       <TopBar />
       <div className="main">
-        <NavRail />
+        <NavRail onSettings={() => setSettingsOpen(true)} />
         {tab === 'timeline' && <SessionList />}
         <section className="content">
           {tab === 'timeline' && <Timeline />}
@@ -43,11 +57,12 @@ export function App() {
         <CardDrawer />
       </div>
       {toast && <div className="toast">{toast}</div>}
+      {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
     </div>
   );
 }
 
-function NavRail() {
+function NavRail({ onSettings }: { onSettings: () => void }) {
   const tab = useStore((s) => s.tab);
   const authRequired = useStore((s) => s.authRequired);
   return (
@@ -58,9 +73,12 @@ function NavRail() {
           <span>{t.label}</span>
         </button>
       ))}
+      <button className="rail-bottom" title="设置（⌘,）" onClick={onSettings}>
+        <Icon name="settings" size={18} />
+        <span>设置</span>
+      </button>
       {authRequired && (
         <button
-          className="rail-bottom"
           title="退出登录"
           onClick={() => void api.logout().finally(() => location.reload())}
         >

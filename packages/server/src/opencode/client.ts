@@ -1,6 +1,16 @@
 import { EventEmitter } from 'node:events';
 import type { OcEvent, OcMessageWithParts, OcModelLimit, OcSession, PermissionResponse } from '@pixelweb/shared';
 
+/** A non-2xx answer from OpenCode; `status` lets callers fall back between API versions. */
+export class OpencodeHttpError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+  }
+}
+
 /**
  * Minimal, dependency-free client for `opencode serve`.
  *
@@ -66,7 +76,7 @@ export class OpencodeClient extends EventEmitter {
     });
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      throw new Error(`opencode ${init.method ?? 'GET'} ${p} -> ${res.status} ${text.slice(0, 200)}`);
+      throw new OpencodeHttpError(`opencode ${init.method ?? 'GET'} ${p} -> ${res.status} ${text.slice(0, 200)}`, res.status);
     }
     const ct = res.headers.get('content-type') ?? '';
     return (ct.includes('json') ? await res.json() : (await res.text())) as T;
@@ -116,11 +126,27 @@ export class OpencodeClient extends EventEmitter {
   }
 
   /** Answer a pending permission request; opencode confirms with a `permission.replied` event. */
-  replyPermission(id: string, permissionID: string, response: PermissionResponse): Promise<boolean> {
-    return this.json(`session/${encodeURIComponent(id)}/permissions/${encodeURIComponent(permissionID)}`, {
-      method: 'POST',
-      body: JSON.stringify({ response }),
-    });
+  /** Pending permission requests (OpenCode ≥ 1.x `GET /permission`); empty on versions without it. */
+  async listPermissions(): Promise<unknown[]> {
+    try {
+      return await this.json<unknown[]>('permission');
+    } catch (e) {
+      if (e instanceof OpencodeHttpError && e.status === 404) return [];
+      throw e;
+    }
+  }
+
+  /** Answers a permission request: the current endpoint, falling back to the deprecated per-session one on older servers. */
+  async replyPermission(id: string, permissionID: string, response: PermissionResponse): Promise<boolean> {
+    try {
+      return await this.json(`permission/${encodeURIComponent(permissionID)}/reply`, { method: 'POST', body: JSON.stringify({ reply: response }) });
+    } catch (e) {
+      if (!(e instanceof OpencodeHttpError && e.status === 404)) throw e;
+      return this.json(`session/${encodeURIComponent(id)}/permissions/${encodeURIComponent(permissionID)}`, {
+        method: 'POST',
+        body: JSON.stringify({ response }),
+      });
+    }
   }
 
   abortSession(id: string): Promise<unknown> {
