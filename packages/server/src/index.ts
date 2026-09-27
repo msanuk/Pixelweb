@@ -5,9 +5,10 @@ import { fileURLToPath } from 'node:url';
 import Fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
 import websocket from '@fastify/websocket';
-import type { ClientMessage, CommitLink, ExplainRequest, ExplainResponse, OcPart, PermissionResponse, ServerInfo, ServerMessage } from '@pixelweb/shared';
+import type { ClientMessage, CommitLink, ExplainRequest, ExplainResponse, ModelInfo, OcPart, PermissionResponse, ServerInfo, ServerMessage } from '@pixelweb/shared';
 import { loadConfig, printUsage } from './config.js';
 import { OpencodeClient, type GlobalEvent } from './opencode/client.js';
+import { toModelInfo } from './opencode/models.js';
 import { Hub } from './ws.js';
 import { registerAuth } from './auth.js';
 import { GitService } from './git/service.js';
@@ -163,6 +164,18 @@ async function main(): Promise<void> {
   app.get<{ Params: { id: string } }>('/api/sessions/:id/messages', async (req, reply) => {
     try {
       return await opencode.messages(req.params.id);
+    } catch (e) {
+      return reply.code(502).send({ error: String(e instanceof Error ? e.message : e) });
+    }
+  });
+  // model token limits for the context meter; they rarely change, so cache briefly
+  let modelsCache: { at: number; info: ModelInfo } | null = null;
+  app.get('/api/models', async (_req, reply) => {
+    if (modelsCache && Date.now() - modelsCache.at < 5 * 60_000) return modelsCache.info;
+    try {
+      const [providers, config] = await Promise.all([opencode.providers(), opencode.config().catch(() => ({}))]);
+      modelsCache = { at: Date.now(), info: toModelInfo(providers, config) };
+      return modelsCache.info;
     } catch (e) {
       return reply.code(502).send({ error: String(e instanceof Error ? e.message : e) });
     }

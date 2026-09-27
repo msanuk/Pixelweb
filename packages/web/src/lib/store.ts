@@ -5,6 +5,7 @@ import type {
   GitSnapshot,
   KnowledgeIndexEntry,
   LearningState,
+  ModelInfo,
   OcEvent,
   OcMessage,
   OcMessageWithParts,
@@ -47,6 +48,8 @@ export interface State {
   /** commits the agent made, tied to the tool call that made them */
   commitLinks: CommitLink[];
   arch: ArchGraph | null;
+  /** model token limits, for the context meter; null until OpenCode answers */
+  modelInfo: ModelInfo | null;
   knowledge: KnowledgeIndexEntry[];
   terms: { term: string; cardId: string }[];
   learning: LearningState;
@@ -79,6 +82,7 @@ const initial: State = {
   git: null,
   commitLinks: [],
   arch: null,
+  modelInfo: null,
   knowledge: [],
   terms: [],
   learning: { records: {}, updatedAt: 0 },
@@ -127,7 +131,16 @@ export async function loadInitial(): Promise<void> {
   ]);
   setState({ knowledge, terms, learning });
   await refreshSessions();
+  void loadModels();
   api.info().then((i) => setState({ teachingSessions: new Set(i.teachingSessions) })).catch(() => {});
+}
+
+export async function loadModels(): Promise<void> {
+  try {
+    setState({ modelInfo: await api.models() });
+  } catch {
+    /* OpenCode not reachable yet: retried when it connects */
+  }
 }
 
 export async function refreshSessions(): Promise<void> {

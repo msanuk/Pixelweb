@@ -192,6 +192,13 @@ h2, h3, h4, h5 { margin: 0.4em 0; }
 .timeline-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 16px; border-bottom: 1px solid var(--border); background: var(--panel); }
 .timeline-head h3 { margin: 0 0 2px; font-size: 15px; }
 .timeline-head .meta { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+/* context meter: ink fill, a tick where OpenCode compacts, amber once close to it */
+.ctx-meter { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; margin-top: 3px; flex-wrap: wrap; }
+.ctx-bar { position: relative; width: 120px; height: 6px; border-radius: 3px; background: var(--panel-2); border: 1px solid var(--border); overflow: visible; }
+.ctx-bar i { position: absolute; inset: 0 auto 0 0; border-radius: 3px; background: var(--muted); }
+.ctx-bar b { position: absolute; top: -3px; bottom: -3px; width: 1.5px; background: var(--text); }
+.ctx-meter.near { color: var(--warn); }
+.ctx-meter.near .ctx-bar i { background: var(--warn); }
 .banner { padding: 8px 16px; border-bottom: 1px solid var(--border); }
 .banner.warn { background: color-mix(in srgb, var(--warn) 12%, var(--panel)); color: var(--warn); }
 .todos { padding: 6px 16px; border-bottom: 1px solid var(--border); background: var(--panel); font-size: 13px; }

@@ -1,5 +1,5 @@
 import type { ClientMessage, ServerMessage } from '@pixelweb/shared';
-import { applyEvent, getState, setState } from './store';
+import { applyEvent, getState, loadModels, setState } from './store';
 
 let socket: WebSocket | null = null;
 let retry = 1000;
@@ -31,6 +31,7 @@ export function connect(): void {
         break;
       case 'opencode.status':
         setState({ opencodeConnected: msg.connected, opencodeError: msg.error });
+        if (msg.connected && !getState().modelInfo && !getState().needLogin) void loadModels();
         break;
       case 'opencode.event':
         applyEvent(msg.event, msg.receivedAt);

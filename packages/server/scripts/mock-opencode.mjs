@@ -14,7 +14,7 @@ const messages = {
   ses_1: [
     { info: { id: 'm1', sessionID: 'ses_1', role: 'user', time: { created: now() - 60000 }, agent: 'build', model: { providerID: 'anthropic', modelID: 'claude' } },
       parts: [{ id: 'p1', sessionID: 'ses_1', messageID: 'm1', type: 'text', text: '请修复登录页在 token 过期时不跳转的问题，并跑测试。' }] },
-    { info: { id: 'm2', sessionID: 'ses_1', role: 'assistant', time: { created: now() - 59000, completed: now() - 30000 }, parentID: 'm1', modelID: 'claude-sonnet-4', providerID: 'anthropic', mode: 'build', cost: 0.0123, tokens: { input: 5400, output: 820, reasoning: 0, cache: { read: 3000, write: 0 } } },
+    { info: { id: 'm2', sessionID: 'ses_1', role: 'assistant', time: { created: now() - 59000, completed: now() - 30000 }, parentID: 'm1', modelID: 'claude-sonnet-4', providerID: 'anthropic', mode: 'build', cost: 0.0123, tokens: { input: 12400, output: 820, reasoning: 0, cache: { read: 131000, write: 0 } } },
       parts: [
         { id: 'p2', sessionID: 'ses_1', messageID: 'm2', type: 'step-start' },
         { id: 'p3', sessionID: 'ses_1', messageID: 'm2', type: 'reasoning', text: '先用 grep 找到处理 token 过期的地方，再看 webhook 回调。', time: { start: 1, end: 2 } },
@@ -23,7 +23,7 @@ const messages = {
         { id: 'p5b', sessionID: 'ses_1', messageID: 'm2', type: 'tool', callID: 'c2b', tool: 'edit', state: { status: 'completed', input: { filePath: 'src/router.ts', oldString: '', newString: '' }, output: 'ok', title: 'edit src/router.ts', metadata: { diff: 'Index: src/router.ts\n===================================================================\n--- src/router.ts\n+++ src/router.ts\n@@ -10,7 +10,9 @@\n export function guard(to: Route) {\n-  if (!session.valid) return;\n+  if (!session.valid) {\n+    return redirect(\'/login\');\n+  }\n   return next(to);\n }\n' }, time: { start: now() - 55500, end: now() - 55200 } } },
         { id: 'p6', sessionID: 'ses_1', messageID: 'm2', type: 'tool', callID: 'c3', tool: 'bash', state: { status: 'error', input: { command: 'npm test' }, error: 'FAIL src/auth.test.ts', time: { start: now() - 54000, end: now() - 50000 } } },
         { id: 'p7', sessionID: 'ses_1', messageID: 'm2', type: 'text', text: '我通过 **grep** 定位到 `src/auth.ts`，用 edit 加了跳转。测试失败，是因为 SSE 连接的 mock 没更新，这涉及 context window 之外的信息，需要再看一次 commit 历史。' },
-        { id: 'p8', sessionID: 'ses_1', messageID: 'm2', type: 'step-finish', reason: 'tool-calls', cost: 0.0123, tokens: { input: 5400, output: 820, reasoning: 0, cache: { read: 3000, write: 0 } } },
+        { id: 'p8', sessionID: 'ses_1', messageID: 'm2', type: 'step-finish', reason: 'tool-calls', cost: 0.0123, tokens: { input: 12400, output: 820, reasoning: 0, cache: { read: 131000, write: 0 } } },
       ] },
   ],
   ses_2: [],
@@ -68,6 +68,8 @@ http.createServer((req, res) => {
   }
   if (p === '/global/health') return json(res, 200, { healthy: true, version: 'mock' });
   if (p === '/path') return json(res, 200, { state: '', config: '', worktree: dir, directory: dir });
+  if (p === '/config/providers') return json(res, 200, { default: { anthropic: 'claude-sonnet-4' }, providers: [{ id: 'anthropic', name: 'Anthropic', models: { 'claude-sonnet-4': { id: 'claude-sonnet-4', name: 'Claude Sonnet 4', limit: { context: 200000, output: 64000 } } } }] });
+  if (p === '/config') return json(res, 200, { compaction: { auto: true } });
   if (p === '/session' && req.method === 'GET') return json(res, 200, sessions);
   if (p === '/session' && req.method === 'POST') {
     let body = ''; req.on('data', (c) => (body += c)); req.on('end', () => {

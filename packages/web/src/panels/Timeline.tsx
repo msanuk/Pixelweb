@@ -8,6 +8,7 @@ import { Highlight } from '../components/Highlight';
 import { DiffStat, DiffView } from '../components/DiffView';
 import { lineDiff, parseUnified, type Diff } from '../lib/diff';
 import { toProjectPath, toolFiles } from '../lib/activity';
+import { contextUsage } from '../lib/context';
 
 const TOOL_CARD: Record<string, string> = {
   bash: 'tool-bash',
@@ -112,6 +113,7 @@ export function Timeline() {
             </button>{' '}
             {fmtNum(totals.input)} / {fmtNum(totals.output)} · ${totals.cost.toFixed(4)}
           </div>
+          <ContextMeter messages={messages} sessionTitle={session?.title ?? ''} />
         </div>
         <div className="actions">
           <label className="follow">
@@ -172,6 +174,54 @@ export function Timeline() {
           发送
         </button>
       </form>
+    </div>
+  );
+}
+
+/** How full the context window is after the latest request, and how far that is from OpenCode compacting on its own. */
+function ContextMeter({ messages, sessionTitle }: { messages: OcMessageWithParts[] | undefined; sessionTitle: string }) {
+  const info = useStore((s) => s.modelInfo);
+  const u = useMemo(() => contextUsage(messages, info), [messages, info]);
+  if (!u) return null;
+  const ctx =
+    `会话「${sessionTitle}」使用 ${u.model}` +
+    (u.limit ? `：上下文窗口 ${u.limit} tokens，最近一次请求用了 ${u.used}，OpenCode 约在 ${u.threshold} 时自动压缩` : `：最近一次请求用了 ${u.used} tokens`);
+  if (u.justCompacted) {
+    return (
+      <div className="ctx-meter">
+        <button className="term" onClick={() => openCard('compaction', ctx)}>
+          上下文
+        </button>
+        <span className="muted">刚压缩过，下一次请求后更新</span>
+      </div>
+    );
+  }
+  const pct = u.limit ? Math.min(1, u.used / u.limit) : 0;
+  const left = u.threshold - u.used;
+  const near = u.autoCompact && u.threshold > 0 && u.used >= u.threshold * 0.85;
+  return (
+    <div className={`ctx-meter ${near ? 'near' : ''}`}>
+      <button className="term" onClick={() => openCard('context-window', ctx)}>
+        上下文
+      </button>
+      {u.limit > 0 && (
+        <span className="ctx-bar" role="meter" aria-valuemin={0} aria-valuemax={u.limit} aria-valuenow={u.used} aria-label="上下文用量">
+          <i style={{ width: `${pct * 100}%` }} />
+          {u.autoCompact && u.threshold > 0 && <b style={{ left: `${(u.threshold / u.limit) * 100}%` }} title="OpenCode 在这里自动压缩" />}
+        </span>
+      )}
+      <span className="mono">
+        {fmtNum(u.used)}
+        {u.limit > 0 && ` / ${fmtNum(u.limit)} · ${Math.round(pct * 100)}%`}
+      </span>
+      {u.limit > 0 &&
+        (u.autoCompact ? (
+          <button className="term" onClick={() => openCard('compaction', ctx)}>
+            {left > 0 ? `距自动压缩约 ${fmtNum(left)}` : '下一步会自动压缩'}
+          </button>
+        ) : (
+          <span>自动压缩已关闭</span>
+        ))}
     </div>
   );
 }

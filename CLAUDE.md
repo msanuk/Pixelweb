@@ -51,6 +51,7 @@ Access control lives in `server/src/auth.ts` (`registerAuth`, an `onRequest` hoo
   - `lib/store.ts` — a single hand-written global store (`useSyncExternalStore`) plus `applyEvent`, a reducer that merges raw OpenCode SSE events (`message.updated`, `message.part.updated`, `session.status`, `permission.*`, `todo.updated`…) into a per-session message/part tree. Parts for sessions whose messages aren't loaded yet are dropped and fetched on open.
   - `lib/terms.ts` + `components/Highlight.tsx` — every term/alias from the knowledge index becomes a click-to-open-card highlight (longest match first; `\b` boundaries only for ASCII terms).
   - `lib/activity.ts` — which project files a session read/edited (tool inputs + `patch` parts; OpenCode passes absolute, possibly Windows, paths → `toProjectPath`) and `nodeForPath` to map them onto arch-graph nodes.
+  - `lib/context.ts` — the timeline's context meter. `compactionThreshold` mirrors OpenCode's own overflow check (v1.17: window minus `min(output limit, 32k)`, or `limit.input` minus `compaction.reserved` ?? 20k); limits come from `GET /api/models` (OpenCode `/config/providers` + `/config`). Re-check it when bumping the OpenCode version.
   - Cross-panel jumps go through one-shot store fields (`archFocus`, `gitFocus`, `partFocus`, set by `showInArch`/`showCommit`/`showPart`) that the target panel consumes and clears.
   - `panels/` — one component per tab (Timeline, GitGraph, ArchGraph via d3-force, Knowledge).
 

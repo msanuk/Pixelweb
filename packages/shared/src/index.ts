@@ -18,6 +18,8 @@ export interface OcSession {
 }
 
 export interface OcTokens {
+  /** newer OpenCode versions report the sum directly */
+  total?: number;
   input: number;
   output: number;
   reasoning: number;
@@ -46,6 +48,8 @@ export interface OcAssistantMessage {
   tokens: OcTokens;
   error?: { name: string; data: { message?: string } };
   finish?: string;
+  /** the summary written by a compaction */
+  summary?: boolean;
 }
 
 export type OcMessage = OcUserMessage | OcAssistantMessage;
@@ -100,6 +104,20 @@ export interface OcPermission {
   title: string;
   metadata: Record<string, unknown>;
   time: { created: number };
+}
+
+/** A model's token limits, from OpenCode's `/config/providers`. */
+export interface OcModelLimit {
+  context: number;
+  /** some models cap the prompt separately from the whole window */
+  input?: number;
+  output: number;
+}
+
+/** What PixelWeb needs to draw a context meter: limits per "providerID/modelID", plus compaction settings. */
+export interface ModelInfo {
+  limits: Record<string, OcModelLimit>;
+  compaction: { auto: boolean; reserved?: number };
 }
 
 /** Allowed answers to an OpenCode permission request. */

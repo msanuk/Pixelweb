@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import type { OcEvent, OcMessageWithParts, OcSession, PermissionResponse } from '@pixelweb/shared';
+import type { OcEvent, OcMessageWithParts, OcModelLimit, OcSession, PermissionResponse } from '@pixelweb/shared';
 
 /**
  * Minimal, dependency-free client for `opencode serve`.
@@ -80,6 +80,15 @@ export class OpencodeClient extends EventEmitter {
 
   path(): Promise<{ worktree: string; directory: string }> {
     return this.json('path');
+  }
+
+  /** Configured providers and their models (with token limits). */
+  providers(): Promise<{ providers: { id: string; models: Record<string, { id?: string; limit?: OcModelLimit }> }[] }> {
+    return this.json('config/providers');
+  }
+
+  config(): Promise<{ compaction?: { auto?: boolean; reserved?: number } }> {
+    return this.json('config');
   }
 
   listSessions(): Promise<OcSession[]> {
