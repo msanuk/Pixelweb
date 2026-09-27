@@ -3,6 +3,7 @@ import type { KnowledgeCard } from '@pixelweb/shared';
 import { api } from '../lib/api';
 import { explain, openCard, setState, useStore } from '../lib/store';
 import { Markdown } from './Markdown';
+import { Icon } from './Icon';
 
 const CATEGORY_LABEL: Record<string, string> = {
   ai: 'AI',
@@ -53,14 +54,14 @@ export function CardDrawer() {
         <div>
           {card && (
             <>
-              <span className={`chip cat-${card.category}`}>{CATEGORY_LABEL[card.category]}</span>
+              <span className="chip">{CATEGORY_LABEL[card.category]}</span>
               <span className="chip">L{card.level}</span>
               {record && <span className={`chip mastery-${record.mastery}`}>{masteryLabel(record.mastery)}</span>}
             </>
           )}
         </div>
-        <button className="icon-btn" onClick={() => openCard(null)} title="关闭 (Esc)">
-          ✕
+        <button className="icon-btn" onClick={() => openCard(null)} title="关闭 (Esc)" aria-label="关闭卡片">
+          <Icon name="close" />
         </button>
       </div>
       {err && <p className="error">找不到卡片：{err}</p>}
@@ -134,7 +135,7 @@ export function CardDrawer() {
               }}
               title="开一个只读的 OpenCode 教学会话，结合当前项目深入讲解"
             >
-              {busy ? '正在开启…' : '📖 让 OpenCode 结合项目深入解释'}
+              {busy ? '正在开启…' : '让 OpenCode 结合项目深入解释'}
             </button>
             <div className="mastery-row">
               <span>我的掌握度：</span>

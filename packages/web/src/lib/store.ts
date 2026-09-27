@@ -13,6 +13,7 @@ import type {
   OcTodo,
 } from '@pixelweb/shared';
 import { api } from './api';
+import { displayTitle } from './format';
 
 export type Tab = 'timeline' | 'git' | 'arch' | 'knowledge';
 
@@ -160,7 +161,7 @@ export async function explain(term: string, context?: string, cardId?: string): 
       tab: 'timeline',
       openCard: null,
     }));
-    toast(`已开启教学会话「${res.title}」，回答会实时出现在时间线`);
+    toast(`已开启教学会话「${displayTitle(res.title)}」，回答会实时出现在时间线`);
     await refreshSessions();
     await loadMessages(res.sessionID, true);
   } catch (e) {

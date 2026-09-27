@@ -7,7 +7,8 @@ import { Highlight } from '../components/Highlight';
 
 const LANE_W = 22;
 const ROW_H = 30;
-const COLORS = ['#3b82f6', '#22c55e', '#f59e0b', '#ec4899', '#8b5cf6', '#14b8a6', '#ef4444', '#f97316'];
+// Muted lane colours from the theme (styles.css); lane 0 (usually the current line) is near-ink.
+const COLORS = [1, 4, 2, 3, 5, 6].map((i) => `var(--series-${i})`);
 
 interface Laid {
   commit: GitCommit;
@@ -70,6 +71,7 @@ export function GitGraph() {
   const git = useStore((s) => s.git);
   const [selected, setSelected] = useState<string | null>(null);
   const [filter, setFilter] = useState('');
+  const cardOpen = useStore((s) => s.openCard !== null);
 
   const laid = useMemo(() => (git ? layoutCommits(git.commits) : null), [git]);
 
@@ -143,7 +145,7 @@ export function GitGraph() {
                 cx={r.lane * LANE_W + LANE_W}
                 cy={r.row * ROW_H + ROW_H / 2}
                 r={r.commit.parents.length > 1 ? 6 : 5}
-                fill={r.commit.hash === git.head ? '#fff' : r.color}
+                fill={r.commit.hash === git.head ? 'var(--panel)' : r.color}
                 stroke={r.color}
                 strokeWidth={r.commit.parents.length > 1 ? 3 : 2}
                 className="commit-dot"
@@ -169,6 +171,7 @@ export function GitGraph() {
           </ol>
         </div>
 
+        {!cardOpen && (
         <aside className="git-side">
           {sel ? <CommitDetail c={sel} git={git} /> : <p className="muted">点击一个提交查看详情。</p>}
           <section>
@@ -214,6 +217,7 @@ export function GitGraph() {
             </ul>
           </section>
         </aside>
+        )}
       </div>
     </div>
   );

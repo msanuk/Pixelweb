@@ -72,9 +72,10 @@ export function Knowledge() {
         {list.map((c) => {
           const r = learning.records[c.id];
           return (
-            <button key={c.id} className={`card cat-${c.category}`} onClick={() => openCard(c.id)}>
+            <button key={c.id} className="card" onClick={() => openCard(c.id)}>
               <div className="card-top">
                 <strong>{c.title}</strong>
+                {cat === 'all' && <span className="muted small">{CATS.find((x) => x.id === c.category)?.label}</span>}
                 <span className="chip">L{c.level}</span>
                 {r && <span className={`chip mastery-${r.mastery}`}>{masteryLabel(r.mastery)}</span>}
               </div>

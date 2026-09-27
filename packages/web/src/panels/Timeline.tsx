@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { OcMessageWithParts, OcPart } from '@pixelweb/shared';
 import { api } from '../lib/api';
 import { explain, loadMessages, openCard, toast, useStore } from '../lib/store';
-import { fmtDuration, fmtNum, fmtTime } from '../lib/format';
+import { displayTitle, fmtDuration, fmtNum, fmtTime } from '../lib/format';
 import { Markdown } from '../components/Markdown';
 import { Highlight } from '../components/Highlight';
 
@@ -89,7 +89,7 @@ export function Timeline() {
       <header className="timeline-head">
         <div>
           <h3>
-            {isTeaching && <span className="chip teach">教学</span>} {session?.title ?? sessionID}
+            {isTeaching && <span className="chip teach">教学</span>} {session ? displayTitle(session.title) : sessionID}
           </h3>
           <div className="meta">
             <span className={`dot ${status === 'busy' ? 'busy' : status === 'retry' ? 'retry' : ''}`} />
@@ -294,7 +294,7 @@ function ToolPart({ p, sessionTitle }: { p: Extract<OcPart, { type: 'tool' }>; s
   const dur = st.status === 'completed' || st.status === 'error' ? fmtDuration(st.time.end - st.time.start) : null;
   const ctx = `会话「${sessionTitle}」中的工具调用 ${p.tool}\ninput: ${JSON.stringify(st.input).slice(0, 400)}`;
   return (
-    <div className={`part tool status-${st.status}`}>
+    <div className={`part tool status-${st.status} ${open ? 'open' : ''}`}>
       <div className="tool-head" onClick={() => setOpen(!open)}>
         <span className={`dot ${st.status}`} />
         <button
@@ -308,18 +308,9 @@ function ToolPart({ p, sessionTitle }: { p: Extract<OcPart, { type: 'tool' }>; s
           {p.tool}
         </button>
         <span className="tool-title">{title ?? summariseInput(p.tool, st.input)}</span>
-        {dur && <span className="muted">{dur}</span>}
-        <button
-          className="icon-btn"
-          title="让 OpenCode 结合这次调用解释"
-          onClick={(e) => {
-            e.stopPropagation();
-            void explain(`${p.tool} 工具在这一步做了什么`, ctx, cardId);
-          }}
-        >
-          📖
-        </button>
-        <span className="muted">{open ? '▾' : '▸'}</span>
+        {st.status === 'error' && <span className="status-label">失败</span>}
+        {dur && <span className="muted mono small">{dur}</span>}
+        <span className="muted caret">{open ? '▾' : '▸'}</span>
       </div>
       {open && (
         <div className="tool-body">
@@ -337,6 +328,9 @@ function ToolPart({ p, sessionTitle }: { p: Extract<OcPart, { type: 'tool' }>; s
               <pre className="error">{st.error}</pre>
             </>
           )}
+          <button className="link-btn" onClick={() => void explain(`${p.tool} 工具在这一步做了什么`, ctx, cardId)} title="开一个只读的教学会话，结合这次调用讲解">
+            让 OpenCode 解释这一步 →
+          </button>
         </div>
       )}
     </div>
