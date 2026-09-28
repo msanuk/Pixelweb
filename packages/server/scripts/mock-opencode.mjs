@@ -172,6 +172,8 @@ http.createServer((req, res) => {
   if (p === '/config') return json(res, 200, { compaction: { auto: true } });
   if (p === '/project') return json(res, 200, [dir, ...extraProjects].map((w, i) => ({ id: 'prj_' + i, worktree: w, vcs: 'git', time: { created: now() - 86400000, updated: now() - i * 3600000 } })));
   if (p === '/session' && req.method === 'GET') return json(res, 200, inDir(u.searchParams.get('directory')) ? sessions : []);
+  // like opencode, only sessions that aren't idle; one waiting on a permission is still busy
+  if (p === '/session/status') return json(res, 200, Object.fromEntries([...pendingPermissions.values()].map((x) => [x.request.sessionID, { type: 'busy' }])));
   const one = /^\/session\/([^/]+)$/.exec(p);
   if (one) {
     const s = sessions.find((x) => x.id === one[1]);

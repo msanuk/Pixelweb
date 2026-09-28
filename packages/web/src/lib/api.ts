@@ -54,6 +54,7 @@ export const api = {
   sessions: () => req<OcSession[]>('/api/sessions'),
   renameSession: (id: string, title: string) =>
     req<OcSession>(`/api/sessions/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ title }) }),
+  sessionStatus: () => req<Record<string, { type: 'idle' | 'busy' | 'retry' }>>('/api/sessions/status'),
   messages: (id: string) => req<OcMessageWithParts[]>(`/api/sessions/${encodeURIComponent(id)}/messages`),
   abort: (id: string) => req(`/api/sessions/${encodeURIComponent(id)}/abort`, { method: 'POST' }),
   prompt: (id: string, text: string) =>
