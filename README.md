@@ -48,7 +48,27 @@ node packages/server/dist/index.js --project ~/your-project
 --host <addr>              PixelWeb 监听地址     (默认 127.0.0.1)
 --password <pw>            访问 PixelWeb 需要的密码 (同 PIXELWEB_PASSWORD)
 --verbose                  打印每个 opencode 事件
+--no-title-date            不给会话标题加日期前缀 (同 PIXELWEB_TITLE_DATE=0)
 ```
+
+### 会话命名
+
+会话标题统一成 `yyyymmdd-动词对象`，只用中文，整个标题不超过 25 个字，例如 `20260928-修复登录跳转`。分两半做：
+
+1. **OpenCode 起标题**：OpenCode 在第一条消息后用隐藏的 `title` agent 起一次标题，它的提示词可以换掉。把 [`docs/opencode-title-prompt.txt`](docs/opencode-title-prompt.txt) 放到服务器上，在 OpenCode 的配置（全局 `~/.config/opencode/opencode.json`，或项目里的 `opencode.json`）里加上：
+
+   ```json
+   {
+     "agent": {
+       "title": { "prompt": "{file:./title-prompt.txt}" }
+     }
+   }
+   ```
+
+   `{file:...}` 的相对路径相对于这个配置文件。想用便宜的模型起标题，可以再加 `"model": "provider/model"`。改完重启 `opencode serve`，之后新建的会话才生效。
+2. **PixelWeb 加日期**：`title` agent 看不到今天的日期，所以日期前缀由 PixelWeb 补：OpenCode 写入标题后，PixelWeb 马上按会话的创建日期改成 `yyyymmdd-…`，超出 25 个字的截掉。改名写回 OpenCode，终端里也能看到。时间线标题旁的铅笔图标（或双击标题）可以手动改名，同样会自动加日期。
+
+不会动的：子任务（OpenCode 用任务描述加 `(@agent subagent)` 命名）、教学会话、还没起标题的会话、已经带日期的标题。旧会话不会批量改名，下次有动静（比如继续对话）时才会改。PixelWeb 没运行时起的标题没有日期，之后它在 PixelWeb 运行时有动静了才补上。
 
 ### 部署到服务器
 

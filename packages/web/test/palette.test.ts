@@ -64,7 +64,7 @@ describe('filterItems', () => {
     const many = Array.from({ length: 8 }, (_, i) => session(`x${i}`, `会话 ${i}`, i * 10));
     const sections = filterItems(buildItems(data({ sessions: many })), '  ');
     expect(sections.map((s) => s.label)).toEqual(['页面', '最近会话', '命令']);
-    expect(titles(sections, 'page')).toEqual(['时间线', 'Git', '架构', '知识库']);
+    expect(titles(sections, 'page')).toEqual(['时间线', 'Git', '架构', '知识库', '用量']);
     expect(titles(sections, 'session')).toEqual(['会话 7', '会话 6', '会话 5', '会话 4', '会话 3']);
   });
 

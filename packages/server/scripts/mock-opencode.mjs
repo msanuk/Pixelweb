@@ -12,7 +12,10 @@ const nested = (a, b) => a === b || a.startsWith(b + path.sep);
 const inDir = (d) => !d || nested(path.resolve(d), dir) || nested(dir, path.resolve(d));
 const sessions = [
   { id: 'ses_1', projectID: 'p', directory: dir, title: '修复登录页 bug', version: '1', time: { created: now() - 60000, updated: now() - 1000 }, summary: { additions: 12, deletions: 3, files: 2 } },
-  { id: 'ses_2', projectID: 'p', directory: dir, parentID: 'ses_1', title: '子任务：搜索相关文件', version: '1', time: { created: now() - 50000, updated: now() - 20000 } },
+  // subtasks started by ses_1's task calls, titled the way opencode titles them
+  { id: 'ses_2', projectID: 'p', directory: dir, parentID: 'ses_1', title: '搜索处理 token 过期的代码 (@explore subagent)', version: '1', time: { created: now() - 58500, updated: now() - 57200 } },
+  { id: 'ses_new', projectID: 'p', directory: dir, title: `New session - ${new Date(now() - 30000).toISOString()}`, version: '1', time: { created: now() - 30000, updated: now() - 30000 } },
+  { id: 'ses_2b', projectID: 'p', directory: dir, parentID: 'ses_1', title: '检查路由守卫的调用方 (@general subagent)', version: '1', time: { created: now() - 57000, updated: now() - 56200 } },
 ];
 const messages = {
   ses_1: [
@@ -22,6 +25,8 @@ const messages = {
       parts: [
         { id: 'p2', sessionID: 'ses_1', messageID: 'm2', type: 'step-start' },
         { id: 'p3', sessionID: 'ses_1', messageID: 'm2', type: 'reasoning', text: '先用 grep 找到处理 token 过期的地方，再看 webhook 回调。', time: { start: 1, end: 2 } },
+        { id: 'p3a', sessionID: 'ses_1', messageID: 'm2', type: 'tool', callID: 'c0', tool: 'task', state: { status: 'completed', input: { description: '搜索处理 token 过期的代码', prompt: '找出所有处理 token 过期的地方', subagent_type: 'explore' }, output: 'src/auth.ts:42', title: '搜索处理 token 过期的代码', metadata: { parentSessionId: 'ses_1', sessionId: 'ses_2', model: { providerID: 'anthropic', modelID: 'claude-sonnet-4' } }, time: { start: now() - 58500, end: now() - 57200 } } },
+        { id: 'p3b', sessionID: 'ses_1', messageID: 'm2', type: 'tool', callID: 'c0b', tool: 'task', state: { status: 'completed', input: { description: '检查路由守卫的调用方', prompt: '看看 guard() 被谁调用', subagent_type: 'general' }, output: 'src/router.ts', title: '检查路由守卫的调用方', metadata: { parentSessionId: 'ses_1', sessionId: 'ses_2b', model: { providerID: 'anthropic', modelID: 'claude-sonnet-4' } }, time: { start: now() - 57000, end: now() - 56200 } } },
         { id: 'p4', sessionID: 'ses_1', messageID: 'm2', type: 'tool', callID: 'c1', tool: 'grep', state: { status: 'completed', input: { pattern: 'tokenExpired', path: 'src' }, output: 'src/auth.ts:42: if (tokenExpired) {', title: 'grep tokenExpired', metadata: {}, time: { start: now() - 58000, end: now() - 57000 } } },
         { id: 'p5', sessionID: 'ses_1', messageID: 'm2', type: 'tool', callID: 'c2', tool: 'edit', state: { status: 'completed', input: { filePath: 'src/auth.ts', oldString: 'if (tokenExpired) {', newString: 'if (tokenExpired) { router.push("/login");' }, output: 'ok', title: 'edit src/auth.ts', metadata: {}, time: { start: now() - 56000, end: now() - 55000 } } },
         { id: 'p5b', sessionID: 'ses_1', messageID: 'm2', type: 'tool', callID: 'c2b', tool: 'edit', state: { status: 'completed', input: { filePath: 'src/router.ts', oldString: '', newString: '' }, output: 'ok', title: 'edit src/router.ts', metadata: { diff: 'Index: src/router.ts\n===================================================================\n--- src/router.ts\n+++ src/router.ts\n@@ -10,7 +10,9 @@\n export function guard(to: Route) {\n-  if (!session.valid) return;\n+  if (!session.valid) {\n+    return redirect(\'/login\');\n+  }\n   return next(to);\n }\n' }, time: { start: now() - 55500, end: now() - 55200 } } },
@@ -31,7 +36,42 @@ const messages = {
       ] },
   ],
   ses_2: [],
+  ses_2b: [],
+  ses_new: [],
 };
+
+// Two weeks of older sessions on a few models, for the 用量 page. opencodego reports no cache use, like an
+// openai-compatible provider that doesn't return cached-token counts.
+{
+  const day = 86_400_000;
+  const plan = [
+    [13, 'anthropic', 'claude-sonnet-4', 3], [12, 'anthropic', 'claude-sonnet-4', 5], [10, 'opencodego', 'deepseek-v4-pro', 4],
+    [9, 'anthropic', 'claude-haiku-4-5', 2], [7, 'anthropic', 'claude-sonnet-4', 6], [6, 'opencodego', 'deepseek-v4-pro', 3],
+    [4, 'anthropic', 'claude-sonnet-4', 4], [3, 'anthropic', 'claude-haiku-4-5', 3], [2, 'opencodego', 'glm-5.2', 5], [1, 'anthropic', 'claude-sonnet-4', 7],
+  ];
+  plan.forEach(([ago, providerID, modelID, steps], n) => {
+    const id = `ses_h${n}`;
+    const T = now() - ago * day + (n % 3) * 3_600_000;
+    const cached = providerID === 'anthropic';
+    const parts = [];
+    for (let i = 0; i < steps; i++) {
+      const prompt = 9000 + i * 2500 + n * 300;
+      const read = cached ? (i === 0 ? 0 : Math.round(prompt * 0.85)) : 0;
+      const write = cached ? (i === 0 ? prompt - 1200 : prompt - read - 600) : 0;
+      const tokens = { input: prompt - read - write, output: 400 + 90 * i, reasoning: modelID.startsWith('deepseek') ? 200 : 0, cache: { read, write } };
+      parts.push({ id: `${id}_s${i}`, sessionID: id, messageID: `${id}_a`, type: 'step-finish', reason: i === steps - 1 ? 'stop' : 'tool-calls', cost: cached ? 0.01 + i * 0.004 : 0, tokens });
+    }
+    const last = parts.at(-1);
+    sessions.push({ id, projectID: 'p', directory: dir, title: `历史会话 ${n + 1}`, version: '1', time: { created: T, updated: T + 5 * 60000 } });
+    messages[id] = [
+      { info: { id: `${id}_u`, sessionID: id, role: 'user', time: { created: T }, agent: 'build', model: { providerID, modelID } },
+        parts: [{ id: `${id}_t`, sessionID: id, messageID: `${id}_u`, type: 'text', text: '示例' }] },
+      // like opencode, the message keeps only the last step's tokens, but the summed cost
+      { info: { id: `${id}_a`, sessionID: id, role: 'assistant', time: { created: T + 1000, completed: T + 5 * 60000 }, parentID: `${id}_u`, modelID, providerID, mode: 'build', cost: parts.reduce((c, p) => c + p.cost, 0), tokens: last.tokens },
+        parts },
+    ];
+  });
+}
 
 // A session whose prompt cache hits, then breaks twice: after an idle gap and after switching agent.
 {
@@ -134,9 +174,24 @@ http.createServer((req, res) => {
   if (p === '/session' && req.method === 'GET') return json(res, 200, inDir(u.searchParams.get('directory')) ? sessions : []);
   // like opencode, only sessions that aren't idle; one waiting on a permission is still busy
   if (p === '/session/status') return json(res, 200, Object.fromEntries([...pendingPermissions.values()].map((x) => [x.request.sessionID, { type: 'busy' }])));
+  const one = /^\/session\/([^/]+)$/.exec(p);
+  if (one) {
+    const s = sessions.find((x) => x.id === one[1]);
+    if (!s) return json(res, 404, { error: 'no such session' });
+    if (req.method === 'GET') return json(res, 200, s);
+    if (req.method === 'PATCH') {
+      readBody(req).then((b) => {
+        if (typeof b.title === 'string') s.title = b.title;
+        s.time.updated = now();
+        emit({ type: 'session.updated', properties: { sessionID: s.id, info: s } });
+        json(res, 200, s);
+      });
+      return;
+    }
+  }
   if (p === '/session' && req.method === 'POST') {
     let body = ''; req.on('data', (c) => (body += c)); req.on('end', () => {
-      const b = JSON.parse(body || '{}'); const s = { id: 'ses_' + counter++, projectID: 'p', directory: dir, title: b.title ?? 'new', version: '1', time: { created: now(), updated: now() } };
+      const b = JSON.parse(body || '{}'); const s = { id: 'ses_' + counter++, projectID: 'p', directory: dir, title: b.title ?? `New session - ${new Date().toISOString()}`, version: '1', time: { created: now(), updated: now() } };
       sessions.unshift(s); messages[s.id] = []; emit({ type: 'session.created', properties: { info: s } }); json(res, 200, s); }); return;
   }
   // permissions, OpenCode 1.x style: GET /permission, POST /permission/:id/reply { reply }; plus the deprecated per-session route
@@ -168,6 +223,15 @@ http.createServer((req, res) => {
         const um = { id: 'm' + counter++, sessionID: id, role: 'user', time: { created: now() }, agent: b.agent ?? 'build', model: { ...(b.model ?? lastModel ?? { providerID: 'anthropic', modelID: 'claude-sonnet-4' }), ...(b.variant ? { variant: b.variant } : {}) }, ...(b.system ? { system: b.system } : {}), ...(b.tools ? { tools: b.tools } : {}) };
         console.log('[mock] prompt', id, JSON.stringify({ agent: b.agent, model: b.model, variant: b.variant, system: !!b.system, tools: b.tools }));
         messages[id].push({ info: um, parts: [{ id: 'p' + counter++, sessionID: id, messageID: um.id, type: 'text', text }] });
+        // like opencode's title agent: the first prompt names a still-untitled session (Chinese, 动词对象)
+        const ses = sessions.find((x) => x.id === id);
+        if (ses && /^New session - /.test(ses.title)) {
+          setTimeout(() => {
+            ses.title = '“' + (text.replace(/^请/, '').slice(0, 12) || '闲聊') + '”';
+            ses.time.updated = now();
+            emit({ type: 'session.updated', properties: { sessionID: id, info: ses } });
+          }, 600);
+        }
         emit({ type: 'message.updated', properties: { info: um } });
         emit({ type: 'message.part.updated', properties: { part: messages[id].at(-1).parts[0] } });
         emit({ type: 'session.status', properties: { sessionID: id, status: { type: 'busy' } } });

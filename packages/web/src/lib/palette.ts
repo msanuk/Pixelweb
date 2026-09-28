@@ -66,6 +66,7 @@ const PAGES: { tab: Tab; title: string; keywords: string[] }[] = [
   { tab: 'git', title: 'Git', keywords: ['提交', '分支', 'commit', 'branch'] },
   { tab: 'arch', title: '架构', keywords: ['architecture', 'arch', '依赖', '模块', 'graph'] },
   { tab: 'knowledge', title: '知识库', keywords: ['knowledge', '卡片', 'cards', '学习'] },
+  { tab: 'usage', title: '用量', keywords: ['usage', 'tokens', '缓存', 'cache', '统计', '费用', 'cost'] },
 ];
 
 const THEME_KEYWORDS: Record<ThemeChoice, string[]> = {

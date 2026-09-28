@@ -18,7 +18,7 @@ import { api } from './api';
 import { displayTitle } from './format';
 import { normalizePermission, repliedPermissionID } from './permissions';
 
-export type Tab = 'timeline' | 'git' | 'arch' | 'knowledge';
+export type Tab = 'timeline' | 'git' | 'arch' | 'knowledge' | 'usage';
 
 export interface FeedItem {
   at: number;

@@ -6,11 +6,12 @@ import Fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
 import websocket from '@fastify/websocket';
 import os from 'node:os';
-import type { ClientMessage, CommitLink, ExplainRequest, ExplainResponse, ModelInfo, OcPart, PermissionResponse, ProjectOption, ServerInfo, ServerMessage } from '@pixelweb/shared';
+import type { ClientMessage, CommitLink, ExplainRequest, ExplainResponse, ModelInfo, OcPart, OcSession, PermissionResponse, ProjectOption, ServerInfo, ServerMessage } from '@pixelweb/shared';
 import { loadConfig, printUsage } from './config.js';
 import { OpencodeClient, type GlobalEvent } from './opencode/client.js';
 import { toModelInfo } from './opencode/models.js';
 import { followUpSettings } from './opencode/followup.js';
+import { TITLE_MAX, applyConvention, conventionalTitle } from './opencode/naming.js';
 import { Hub } from './ws.js';
 import { registerAuth } from './auth.js';
 import { GitService } from './git/service.js';
@@ -19,6 +20,7 @@ import { analyseProject } from './analysis/deps.js';
 import { KnowledgeStore } from './knowledge/store.js';
 import { LearningStore } from './knowledge/learning.js';
 import { belongsTo, samePath, toProjectOptions } from './project.js';
+import { UsageIndex } from './usage.js';
 import { TEACHING_PERMISSION, TEACHING_SYSTEM_PROMPT, buildExplainPrompt, teachingSessionTitle } from './knowledge/explain.js';
 
 const VERSION = '0.1.0';
@@ -58,6 +60,8 @@ async function main(): Promise<void> {
 
   let commitIndex = new CommitIndex();
   let commitLinks: CommitLink[] = [];
+  // keyed by session id, which is unique across projects, so it survives a project switch
+  const usage = new UsageIndex((id) => opencode.messages(id));
 
   await Promise.all([knowledge.load(), learning.load()]);
 
@@ -137,11 +141,29 @@ async function main(): Promise<void> {
     if (s.connected) console.log(`[pixelweb] connected to opencode at ${cfg.opencodeUrl}`);
     else if (s.error) console.log(`[pixelweb] opencode unreachable (${s.error}); retrying…`);
   });
+  /** Sessions being renamed right now, so the burst of session.updated events during a turn sends one PATCH. */
+  const renaming = new Set<string>();
+  const nameByConvention = (s: OcSession) => {
+    const title = conventionalTitle(s);
+    if (!title || renaming.has(s.id)) return;
+    renaming.add(s.id);
+    opencode
+      .updateSession(s.id, { title })
+      .then(() => cfg.verbose && console.log(`[pixelweb] renamed ${s.id}: ${s.title} → ${title}`))
+      .catch((e) => console.warn(`[pixelweb] rename ${s.id}:`, e?.message ?? e))
+      .finally(() => renaming.delete(s.id));
+  };
+
   opencode.on('event', (ev: GlobalEvent) => {
     // /global/event carries every project OpenCode has open; only the visualised one is ours
     if (!belongsTo(ev.directory, cfg.projectRoot)) return;
     hub.broadcast({ type: 'opencode.event', event: ev.payload, directory: ev.directory, receivedAt: Date.now() });
     const t = ev.payload.type;
+    // OpenCode writes its generated title with a session.updated; date it the moment it lands
+    if (cfg.titleDate && t === 'session.updated') {
+      const info = (ev.payload.properties as { info?: OcSession }).info;
+      if (info?.id && typeof info.title === 'string' && info.time) nameByConvention(info);
+    }
     if (t === 'message.part.updated' && commitIndex.addPart((ev.payload.properties as { part: OcPart }).part)) publishCommits();
     if (t === 'file.edited' || t === 'file.watcher.updated' || t === 'session.idle' || t === 'vcs.branch.updated') {
       gitSvc.scheduleRefresh(400);
@@ -206,11 +228,37 @@ async function main(): Promise<void> {
       return reply.code(502).send({ error: String(e instanceof Error ? e.message : e) });
     }
   });
+  // rename from the UI; the convention's date prefix is added unless turned off
+  app.patch<{ Params: { id: string }; Body: { title?: string } }>('/api/sessions/:id', async (req, reply) => {
+    const raw = typeof req.body?.title === 'string' ? req.body.title.trim() : '';
+    if (!raw) return reply.code(400).send({ error: 'title required' });
+    if (raw.length > 200) return reply.code(400).send({ error: 'title too long' });
+    try {
+      const s = await opencode.getSession(req.params.id);
+      const title = cfg.titleDate && !s.parentID ? applyConvention(raw, s.time.created) : raw.slice(0, TITLE_MAX * 4);
+      return await opencode.updateSession(req.params.id, { title });
+    } catch (e) {
+      return reply.code(502).send({ error: String(e instanceof Error ? e.message : e) });
+    }
+  });
   // the status events only cover changes, so a page opened mid-run needs the current state
   app.get('/api/sessions/status', async () => opencode.sessionStatus().catch(() => ({})));
   app.get<{ Params: { id: string } }>('/api/sessions/:id/messages', async (req, reply) => {
     try {
       return await opencode.messages(req.params.id);
+    } catch (e) {
+      return reply.code(502).send({ error: String(e instanceof Error ? e.message : e) });
+    }
+  });
+  // token usage per model over a time range, for the 用量 page
+  app.get<{ Querystring: { from?: string; to?: string; tz?: string } }>('/api/usage', async (req, reply) => {
+    const num = (v: string | undefined, d: number) => (v !== undefined && v !== '' && Number.isFinite(Number(v)) ? Number(v) : d);
+    const from = num(req.query.from, 0);
+    const to = num(req.query.to, Date.now() + 86_400_000);
+    const tz = num(req.query.tz, 0);
+    if (from >= to || Math.abs(tz) > 24 * 60) return reply.code(400).send({ error: 'bad range' });
+    try {
+      return await usage.report(await opencode.listSessions(), from, to, tz);
     } catch (e) {
       return reply.code(502).send({ error: String(e instanceof Error ? e.message : e) });
     }

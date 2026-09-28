@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { CardDrawer } from './components/CardDrawer';
 import { SettingsDialog } from './components/Settings';
 import { CommandPalette, PaletteTrigger } from './components/CommandPalette';
@@ -8,9 +8,11 @@ import { Timeline } from './panels/Timeline';
 import { GitGraph } from './panels/GitGraph';
 import { ArchGraph } from './panels/ArchGraph';
 import { Knowledge } from './panels/Knowledge';
+import { Usage } from './panels/Usage';
 import { openCard, refreshSessions, selectSession, setState, useStore, type Tab } from './lib/store';
 import { displayTitle, isTeachingTitle, relTime } from './lib/format';
 import { api } from './lib/api';
+import { descendants, sessionTree, subagentTitle } from './lib/sessions';
 import { THEMES, setTheme, useTheme } from './lib/theme';
 
 const TABS: { id: Tab; label: string; icon: IconName }[] = [
@@ -18,6 +20,7 @@ const TABS: { id: Tab; label: string; icon: IconName }[] = [
   { id: 'git', label: 'Git', icon: 'git' },
   { id: 'arch', label: '架构', icon: 'arch' },
   { id: 'knowledge', label: '知识库', icon: 'book' },
+  { id: 'usage', label: '用量', icon: 'chart' },
 ];
 
 /*
@@ -63,6 +66,7 @@ export function App() {
           {tab === 'git' && <GitGraph />}
           {tab === 'arch' && <ArchGraph />}
           {tab === 'knowledge' && <Knowledge />}
+          {tab === 'usage' && <Usage />}
         </section>
         <CardDrawer />
       </div>
@@ -240,9 +244,11 @@ function SessionList() {
   const status = useStore((s) => s.status);
   const teaching = useStore((s) => s.teachingSessions);
   const [collapsed, setCollapsed] = useState(false);
+  // explicit open/closed per parent; unset means "open while it matters" (see SessionItem)
+  const [expanded, setExpanded] = useState<Map<string, boolean>>(new Map());
 
-  const roots = sessions.filter((s) => !s.parentID);
-  const children = (id: string) => sessions.filter((s) => s.parentID === id);
+  const tree = useMemo(() => sessionTree(sessions), [sessions]);
+  const roots = tree.roots;
 
   if (collapsed) {
     return (
@@ -260,7 +266,10 @@ function SessionList() {
         <button className="term strong" onClick={() => openCard('session')}>
           会话
         </button>
-        <span className="muted">{sessions.length}</span>
+        <span className="muted" title={`${roots.length} 个会话，${sessions.length - roots.length} 个子任务`}>
+          {roots.length}
+          {sessions.length > roots.length && ` + ${sessions.length - roots.length} 子任务`}
+        </span>
         <span className="spacer" />
         <button className="icon-btn" onClick={() => void refreshSessions()} title="刷新" aria-label="刷新会话">
           <Icon name="refresh" size={14} />
@@ -281,9 +290,22 @@ function SessionList() {
 
   function SessionItem({ s, depth }: { s: (typeof sessions)[number]; depth: number }) {
     const isTeach = teaching.has(s.id) || isTeachingTitle(s.title);
+    const sub = depth > 0 ? subagentTitle(s.title) : null;
+    const kids = tree.children.get(s.id) ?? [];
+    const below = kids.length ? descendants(tree, s.id) : [];
+    const busyBelow = below.filter((c) => status[c.id] === 'busy').length;
+    const open = expanded.get(s.id) ?? (selected === s.id || busyBelow > 0 || below.some((c) => c.id === selected));
+    const toggle = (e: React.MouseEvent) => {
+      e.stopPropagation();
+      setExpanded((m) => new Map(m).set(s.id, !open));
+    };
     return (
-      <>
-        <li className={`session-item ${selected === s.id ? 'selected' : ''}`} style={{ paddingLeft: 12 + depth * 14 }} onClick={() => void selectSession(s.id)}>
+      <li className={depth > 0 ? 'subtask' : 'root'}>
+        <div
+          className={`session-item ${depth > 0 ? 'sub' : ''} ${selected === s.id ? 'selected' : ''}`}
+          onClick={() => void selectSession(s.id)}
+          title={depth > 0 ? `子任务${sub ? `（@${sub.agent}）` : ''}：${s.title}` : undefined}
+        >
           <span className={`dot ${status[s.id] === 'busy' ? 'busy' : ''}`} />
           <span className="title">
             {isTeach && (
@@ -291,18 +313,29 @@ function SessionList() {
                 <Icon name="book" size={12} />
               </span>
             )}
-            {displayTitle(s.title) || s.id}
+            <span className="title-text">{(sub?.title ?? displayTitle(s.title)) || s.id}</span>
           </span>
-          <span className="muted small">
-            {isTeach ? '教学 · ' : depth > 0 ? '子任务 · ' : ''}
+          <span className="muted small meta-line">
+            {sub && <span className="agent-chip mono">@{sub.agent}</span>}
+            {isTeach ? '教学 · ' : ''}
             {relTime(s.time.updated)}
             {s.summary && (s.summary.additions || s.summary.deletions) ? ` · +${s.summary.additions} −${s.summary.deletions}` : ''}
+            {kids.length > 0 && (
+              <button className="subtask-toggle" onClick={toggle} aria-expanded={open} title={open ? '收起子任务' : '展开子任务'}>
+                <Icon name={open ? 'down' : 'expand'} size={11} />
+                {below.length} 个子任务{busyBelow > 0 && !open ? ` · ${busyBelow} 个运行中` : ''}
+              </button>
+            )}
           </span>
-        </li>
-        {children(s.id).map((c) => (
-          <SessionItem key={c.id} s={c} depth={depth + 1} />
-        ))}
-      </>
+        </div>
+        {open && kids.length > 0 && (
+          <ul className="subtasks">
+            {kids.map((c) => (
+              <SessionItem key={c.id} s={c} depth={depth + 1} />
+            ))}
+          </ul>
+        )}
+      </li>
     );
   }
 }

@@ -135,6 +135,11 @@ export class OpencodeClient extends EventEmitter {
     return this.json(`session/${encodeURIComponent(id)}/message`);
   }
 
+  /** Rename a session; OpenCode broadcasts `session.updated`, so its own UI follows. */
+  updateSession(id: string, body: { title: string }): Promise<OcSession> {
+    return this.json(`session/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) });
+  }
+
   createSession(body: { title?: string; parentID?: string; permission?: OcPermissionRule[] }): Promise<OcSession> {
     return this.json('session', { method: 'POST', body: JSON.stringify(body) });
   }
