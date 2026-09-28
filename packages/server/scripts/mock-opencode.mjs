@@ -33,6 +33,33 @@ const messages = {
   ses_2: [],
 };
 
+// A session whose prompt cache hits, then breaks twice: after an idle gap and after switching agent.
+{
+  const T = now() - 20 * 60000;
+  const id = 'ses_4';
+  const tk = (input, read, write) => ({ input, output: 300, reasoning: 0, cache: { read, write } });
+  const step = (pid, mid, tokens) => ({ id: pid, sessionID: id, messageID: mid, type: 'step-finish', reason: 'tool-calls', cost: 0.01, tokens });
+  const read = (pid, mid, file, at) => ({ id: pid, sessionID: id, messageID: mid, type: 'tool', callID: pid, tool: 'read', state: { status: 'completed', input: { filePath: file }, output: '…', title: file, metadata: {}, time: { start: at, end: at + 500 } } });
+  const text = (pid, mid, t) => ({ id: pid, sessionID: id, messageID: mid, type: 'text', text: t });
+  const u = (mid, at, agent, t) => ({ info: { id: mid, sessionID: id, role: 'user', time: { created: at }, agent, model: { providerID: 'anthropic', modelID: 'claude-sonnet-4' } }, parts: [text(mid + 't', mid, t)] });
+  const a = (mid, at, mode, parts) => ({ info: { id: mid, sessionID: id, role: 'assistant', time: { created: at, completed: at + 30000 }, parentID: '', modelID: 'claude-sonnet-4', providerID: 'anthropic', mode, cost: 0.03, tokens: tk(0, 0, 0) }, parts });
+  sessions.push({ id, projectID: 'p', directory: dir, title: '重构配置加载（缓存示例）', version: '1', time: { created: T, updated: T + 12 * 60000 } });
+  messages[id] = [
+    u('m41', T, 'build', '把配置加载改成先读环境变量再读命令行参数。'),
+    a('m42', T + 1000, 'build', [
+      read('p41', 'm42', 'packages/server/src/config.ts', T + 5000), step('p42', 'm42', tk(420, 0, 18200)),
+      read('p43', 'm42', 'packages/server/src/index.ts', T + 12000), step('p44', 'm42', tk(380, 18620, 2600)),
+      text('p45', 'm42', '看完了，config.ts 里命令行参数优先。要改顺序吗？'), step('p46', 'm42', tk(300, 21600, 900)),
+    ]),
+    u('m43', T + 9 * 60000, 'build', '要，改吧。'),
+    a('m44', T + 9 * 60000 + 1000, 'build', [text('p47', 'm44', '（闲置 9 分钟后，缓存已过期，整段历史重新写入缓存。）'), step('p48', 'm44', tk(520, 0, 23100))]),
+    u('m45', T + 10 * 60000, 'plan', '先别动手，出个方案。'),
+    a('m46', T + 10 * 60000 + 1000, 'plan', [text('p49', 'm46', '（换成 plan agent：系统提示和工具都变了。）'), step('p50', 'm46', tk(640, 0, 24400))]),
+    u('m47', T + 11 * 60000, 'plan', '方案里再加上测试。'),
+    a('m48', T + 11 * 60000 + 1000, 'plan', [text('p51', 'm48', '好的，方案如下……'), step('p52', 'm48', tk(410, 25040, 700))]),
+  ];
+}
+
 // A session that read and edited real files of this repo and committed them, so the
 // architecture-graph highlight and the git ↔ session links have something to show.
 try {
@@ -44,7 +71,7 @@ try {
   const tool = (id, name, input, output, start, end = start + 800) => ({ id, sessionID: 'ses_3', messageID: 'm32', type: 'tool', callID: id, tool: name, state: { status: 'completed', input, output, title: name, metadata: {}, time: { start, end } } });
   sessions.push({ id: 'ses_3', projectID: 'p', directory: dir, title: '提交最近的改动', version: '1', time: { created: t - 60000, updated: t + 2000 } });
   messages.ses_3 = [
-    { info: { id: 'm31', sessionID: 'ses_3', role: 'user', time: { created: t - 60000 }, agent: 'build', model: { providerID: 'anthropic', modelID: 'claude' } },
+    { info: { id: 'm31', sessionID: 'ses_3', role: 'user', time: { created: t - 60000 }, agent: 'build', model: { providerID: 'anthropic', modelID: 'claude', variant: 'high' } },
       parts: [{ id: 'p31', sessionID: 'ses_3', messageID: 'm31', type: 'text', text: '把刚才的改动整理一下提交。' }] },
     { info: { id: 'm32', sessionID: 'ses_3', role: 'assistant', time: { created: t - 59000, completed: t + 2000 }, parentID: 'm31', modelID: 'claude-sonnet-4', providerID: 'anthropic', mode: 'build', cost: 0.004, tokens: { input: 2100, output: 300, reasoning: 0, cache: { read: 0, write: 0 } } },
       parts: [
@@ -105,7 +132,10 @@ http.createServer((req, res) => {
     if (op === 'prompt_async' || op === 'message') {
       let body = ''; req.on('data', (c) => (body += c)); req.on('end', () => {
         const b = JSON.parse(body || '{}'); const text = b.parts?.[0]?.text ?? '';
-        const um = { id: 'm' + counter++, sessionID: id, role: 'user', time: { created: now() } };
+        // like opencode: no agent means the default one; the model falls back to the last user message's
+        const lastModel = messages[id].findLast((x) => x.info.role === 'user' && x.info.model)?.info.model;
+        const um = { id: 'm' + counter++, sessionID: id, role: 'user', time: { created: now() }, agent: b.agent ?? 'build', model: { ...(b.model ?? lastModel ?? { providerID: 'anthropic', modelID: 'claude-sonnet-4' }), ...(b.variant ? { variant: b.variant } : {}) }, ...(b.system ? { system: b.system } : {}), ...(b.tools ? { tools: b.tools } : {}) };
+        console.log('[mock] prompt', id, JSON.stringify({ agent: b.agent, model: b.model, variant: b.variant, system: !!b.system, tools: b.tools }));
         messages[id].push({ info: um, parts: [{ id: 'p' + counter++, sessionID: id, messageID: um.id, type: 'text', text }] });
         emit({ type: 'message.updated', properties: { info: um } });
         emit({ type: 'message.part.updated', properties: { part: messages[id].at(-1).parts[0] } });

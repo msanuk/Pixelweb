@@ -9,6 +9,7 @@ import { DiffStat, DiffView } from '../components/DiffView';
 import { lineDiff, parseUnified, type Diff } from '../lib/diff';
 import { toProjectPath, toolFiles } from '../lib/activity';
 import { contextUsage } from '../lib/context';
+import { analyzeCache, breakReasons, type SessionCache, type StepCache } from '../lib/cache';
 import { cardForTool } from '../lib/tools';
 import { summarizeSession } from '../lib/summary';
 import { buildMatcher } from '../lib/terms';
@@ -58,6 +59,7 @@ export function Timeline() {
     }
     return { input, output, cost, tools };
   }, [messages]);
+  const cache = useMemo(() => analyzeCache(messages ?? []), [messages]);
 
   if (!sessionID) {
     return (
@@ -102,6 +104,7 @@ export function Timeline() {
             {fmtNum(totals.input)} / {fmtNum(totals.output)} · ${totals.cost.toFixed(4)}
           </div>
           <ContextMeter messages={messages} sessionTitle={session?.title ?? ''} />
+          <CacheMeter cache={cache} sessionTitle={session?.title ?? ''} />
         </div>
         <div className="actions">
           <label className="follow">
@@ -140,7 +143,10 @@ export function Timeline() {
         if (!atBottom && follow) setFollow(false);
       }}>
         {loading && !messages && <p className="muted">加载消息…</p>}
-        {messages?.map((m) => <Message key={m.info.id} m={m} sessionTitle={session?.title ?? ''} />)}
+        {messages?.map((m) => (
+          // without cache figures from the provider, per-step hit rates would all read 0%
+          <Message key={m.info.id} m={m} sessionTitle={session?.title ?? ''} steps={cache.reported ? cache.steps : undefined} />
+        ))}
         {status !== 'busy' && messages?.some((m) => m.info.role === 'assistant') && (
           <SessionRecap messages={messages} sessionID={sessionID} sessionTitle={session ? displayTitle(session.title) : sessionID} />
         )}
@@ -304,6 +310,51 @@ function ContextMeter({ messages, sessionTitle }: { messages: OcMessageWithParts
   );
 }
 
+/** How much of the session's prompts the provider served from its prompt cache, and how often that cache broke. */
+function CacheMeter({ cache, sessionTitle }: { cache: SessionCache; sessionTitle: string }) {
+  const next = useRef(0);
+  if (!cache.steps.size) return null;
+  const ctx =
+    `会话「${sessionTitle}」共 ${cache.steps.size} 次模型请求，提示合计 ${cache.prompt} tokens` +
+    (cache.reported ? `，其中缓存读取 ${cache.read}、缓存写入 ${cache.write}，缓存中断 ${cache.breaks} 次` : '，服务商没有回报缓存用量');
+  const open = () => openCard('prompt-cache', ctx);
+  if (!cache.reported) {
+    return (
+      <div className="ctx-meter">
+        <button className="term" onClick={open}>
+          缓存
+        </button>
+        <span>服务商没有回报缓存用量</span>
+      </div>
+    );
+  }
+  const pct = cache.hitRate ?? 0;
+  // each click scrolls to the next break, wrapping around
+  const jump = () => {
+    const els = document.querySelectorAll('.part.step.broken');
+    if (!els.length) return;
+    els[next.current++ % els.length].scrollIntoView({ block: 'center' });
+  };
+  return (
+    <div className="ctx-meter">
+      <button className="term" onClick={open}>
+        缓存命中
+      </button>
+      <span className="ctx-bar" role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(pct * 100)} aria-label="缓存命中率">
+        <i style={{ width: `${pct * 100}%` }} />
+      </span>
+      <span className="mono">
+        {Math.round(pct * 100)}% · 读 {fmtNum(cache.read)} · 写 {fmtNum(cache.write)}
+      </span>
+      {cache.breaks > 0 && (
+        <button className="link-btn warn-text" onClick={jump} title="跳到下一次缓存中断">
+          {cache.breaks} 次中断
+        </button>
+      )}
+    </div>
+  );
+}
+
 /** Pending permission requests, answered in place instead of switching to the OpenCode terminal. */
 function PermissionRequests({ permissions }: { permissions: OcPermission[] }) {
   const [busy, setBusy] = useState<string | null>(null);
@@ -350,7 +401,7 @@ function PermissionRequests({ permissions }: { permissions: OcPermission[] }) {
   );
 }
 
-function Message({ m, sessionTitle }: { m: OcMessageWithParts; sessionTitle: string }) {
+function Message({ m, sessionTitle, steps }: { m: OcMessageWithParts; sessionTitle: string; steps?: Map<string, StepCache> }) {
   const info = m.info;
   const isUser = info.role === 'user';
   return (
@@ -367,14 +418,14 @@ function Message({ m, sessionTitle }: { m: OcMessageWithParts; sessionTitle: str
       </header>
       <div className="parts">
         {m.parts.map((p) => (
-          <Part key={p.id} p={p} sessionTitle={sessionTitle} />
+          <Part key={p.id} p={p} sessionTitle={sessionTitle} cache={steps?.get(p.id)} />
         ))}
       </div>
     </article>
   );
 }
 
-function Part({ p, sessionTitle }: { p: OcPart; sessionTitle: string }) {
+function Part({ p, sessionTitle, cache }: { p: OcPart; sessionTitle: string; cache?: StepCache }) {
   switch (p.type) {
     case 'text': {
       const t = p as Extract<OcPart, { type: 'text' }>;
@@ -403,12 +454,26 @@ function Part({ p, sessionTitle }: { p: OcPart; sessionTitle: string }) {
       return <ToolPart p={p as Extract<OcPart, { type: 'tool' }>} sessionTitle={sessionTitle} />;
     case 'step-finish': {
       const s = p as Extract<OcPart, { type: 'step-finish' }>;
+      const b = cache?.broken;
       return (
-        <div className="part step">
+        <div className={`part step ${b ? 'broken' : ''}`}>
           <button className="term" onClick={() => openCard('token', `step-finish: input ${s.tokens.input}, output ${s.tokens.output}, cache read ${s.tokens.cache.read}`)}>
             step
           </button>{' '}
-          {s.reason} · in {fmtNum(s.tokens.input)} · out {fmtNum(s.tokens.output)} · cache {fmtNum(s.tokens.cache.read)} · ${s.cost.toFixed(4)}
+          {s.reason} · in {fmtNum(s.tokens.input)} · out {fmtNum(s.tokens.output)} · cache {fmtNum(s.tokens.cache.read)}
+          {cache?.hitRate != null && ` (${Math.round(cache.hitRate * 100)}%)`}
+          {cache && cache.write > 0 && ` · 写 ${fmtNum(cache.write)}`} · ${s.cost.toFixed(4)}
+          {b && (
+            <div className="cache-break">
+              <button
+                className="term"
+                onClick={() => openCard('prompt-cache', `这一步只从缓存读了 ${cache.read} tokens，而上一步的提示有 ${b.expected} tokens。${breakReasons(b)}`)}
+              >
+                缓存中断
+              </button>{' '}
+              复用 {fmtNum(cache.read)} / 上一步 {fmtNum(b.expected)} · {breakReasons(b)}
+            </div>
+          )}
         </div>
       );
     }

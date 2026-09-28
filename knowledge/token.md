@@ -5,7 +5,7 @@ aliases: [tokens, 词元, input token, output token]
 category: ai
 level: 1
 summary: LLM 处理文本的最小单位，大致 1 token ≈ 3–4 个英文字符或 1–2 个汉字；计费和上下文长度都按它算。
-related: [context-window, llm, compaction]
+related: [context-window, llm, compaction, prompt-cache]
 appearsIn: [timeline.part.step-finish]
 quiz:
   - q: 下面哪项最直接决定一次调用的费用？

@@ -10,6 +10,7 @@ import type { ClientMessage, CommitLink, ExplainRequest, ExplainResponse, ModelI
 import { loadConfig, printUsage } from './config.js';
 import { OpencodeClient, type GlobalEvent } from './opencode/client.js';
 import { toModelInfo } from './opencode/models.js';
+import { followUpSettings } from './opencode/followup.js';
 import { Hub } from './ws.js';
 import { registerAuth } from './auth.js';
 import { GitService } from './git/service.js';
@@ -255,7 +256,13 @@ async function main(): Promise<void> {
     const text = req.body?.text?.trim();
     if (!text) return reply.code(400).send({ error: 'text required' });
     try {
+      // keep the session's agent, model and prompt so the provider's prompt cache still matches
+      const inherited = await opencode
+        .messages(req.params.id)
+        .then(followUpSettings)
+        .catch(() => ({}));
       await opencode.promptAsync(req.params.id, {
+        ...inherited,
         parts: [{ type: 'text', text }],
         ...(teachingSessions.has(req.params.id) ? { system: TEACHING_SYSTEM_PROMPT, tools: TEACHING_TOOLS } : {}),
       });
