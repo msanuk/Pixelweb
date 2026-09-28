@@ -14,6 +14,7 @@ import { contextUsage } from '../lib/context';
 import { analyzeCache, breakReasons, type SessionCache, type StepCache } from '../lib/cache';
 import { cardForTool } from '../lib/tools';
 import { summarizeSession } from '../lib/summary';
+import { sessionTokens } from '../lib/tokens';
 import { buildMatcher } from '../lib/terms';
 
 
@@ -47,19 +48,9 @@ export function Timeline() {
   }, [messages, follow]);
 
   const totals = useMemo(() => {
-    let input = 0,
-      output = 0,
-      cost = 0,
-      tools = 0;
-    for (const m of messages ?? []) {
-      if (m.info.role === 'assistant') {
-        input += m.info.tokens?.input ?? 0;
-        output += m.info.tokens?.output ?? 0;
-        cost += m.info.cost ?? 0;
-      }
-      tools += m.parts.filter((p) => p.type === 'tool').length;
-    }
-    return { input, output, cost, tools };
+    let tools = 0;
+    for (const m of messages ?? []) tools += m.parts.filter((p) => p.type === 'tool').length;
+    return { ...sessionTokens(messages ?? []), tools };
   }, [messages]);
   const cache = useMemo(() => analyzeCache(messages ?? []), [messages]);
 
