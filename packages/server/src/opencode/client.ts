@@ -38,6 +38,7 @@ export interface PromptInput {
   system?: string;
   model?: { providerID: string; modelID: string };
   agent?: string;
+  variant?: string;
   tools?: Record<string, boolean>;
 }
 

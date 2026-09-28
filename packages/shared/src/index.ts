@@ -32,7 +32,11 @@ export interface OcUserMessage {
   role: 'user';
   time: { created: number };
   agent?: string;
-  model?: { providerID: string; modelID: string };
+  /** `variant` (e.g. a reasoning level) since OpenCode 1.x */
+  model?: { providerID: string; modelID: string; variant?: string };
+  /** extra system prompt and tool switches the prompt was sent with */
+  system?: string;
+  tools?: Record<string, boolean>;
 }
 
 export interface OcAssistantMessage {
