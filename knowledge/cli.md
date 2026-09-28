@@ -1,7 +1,8 @@
 ---
 id: cli
 title: CLI
-aliases: [命令行, 命令行工具, 终端]
+aliases: [命令行, 命令行工具]
+keywords: [终端]
 category: tooling
 level: 1
 summary: 通过命令与参数操作程序的文本界面；agent 与开发者最常用的交互方式。

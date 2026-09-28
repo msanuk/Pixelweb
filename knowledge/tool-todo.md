@@ -1,7 +1,8 @@
 ---
 id: tool-todo
 title: todowrite 工具
-aliases: [todowrite, todoread, 任务清单, todo]
+aliases: [todowrite, todoread, 任务清单]
+keywords: [todo]
 category: ai
 level: 1
 summary: agent 用来维护自己的待办列表，把长任务拆成可勾选的步骤。

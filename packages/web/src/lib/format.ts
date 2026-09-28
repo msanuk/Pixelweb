@@ -29,3 +29,14 @@ export function relTime(ms: number): string {
   if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前`;
   return `${Math.floor(diff / 86_400_000)} 天前`;
 }
+
+/** Teaching sessions are titled "📖 <term>" by the server; the UI marks them with an icon instead. */
+const TEACH_PREFIX = /^(?:📖\s*)+/u;
+
+export function isTeachingTitle(title: string): boolean {
+  return TEACH_PREFIX.test(title);
+}
+
+export function displayTitle(title: string): string {
+  return title.replace(TEACH_PREFIX, '');
+}

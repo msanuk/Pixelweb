@@ -1,7 +1,8 @@
 ---
 id: adapter-pattern
 title: 适配器模式（Adapter）
-aliases: [adapter, 适配层, 抽象层]
+aliases: [adapter, 适配层]
+keywords: [抽象层]
 category: architecture
 level: 2
 summary: 在你的核心逻辑与外部系统之间放一层「翻译」，替换外部系统时只改这一层。

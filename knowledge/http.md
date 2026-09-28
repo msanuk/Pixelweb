@@ -1,7 +1,8 @@
 ---
 id: http
 title: HTTP
-aliases: [HTTP 协议, 请求, 响应, 状态码]
+aliases: [HTTP 协议, 状态码]
+keywords: [请求, 响应]
 category: web
 level: 1
 summary: Web 的基础请求-响应协议：方法 + 路径 + 头 + 体，返回状态码（2xx 成功 4xx 你错 5xx 它错）。

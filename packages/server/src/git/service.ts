@@ -88,6 +88,7 @@ export class GitService extends EventEmitter {
   private timer?: NodeJS.Timeout;
   private snapshot: GitSnapshot | null = null;
   private refreshing: Promise<GitSnapshot | null> | null = null;
+  private root: string | null = null;
 
   constructor(private readonly projectRoot: string, private readonly maxCommits = 400) {
     super();
@@ -106,6 +107,28 @@ export class GitService extends EventEmitter {
     }
   }
 
+  /**
+   * Unified diff of one working-tree file against HEAD. Only paths currently
+   * listed by `git status` are accepted, so callers can't read arbitrary files.
+   * Returns null for unknown paths and untracked directories.
+   */
+  async diff(file: string): Promise<string | null> {
+    const snap = this.snapshot ?? (await this.refresh());
+    const entry = snap?.status.find((s) => s.path === file);
+    const root = this.root;
+    if (!entry || !root || file.endsWith('/')) return null;
+    const out =
+      entry.code === '??'
+        ? // --no-index exits 1 when the files differ; the diff is still on stdout
+          await git(root, ['diff', '--no-index', '--', '/dev/null', file]).catch((e) => {
+            if (typeof e?.stdout === 'string') return e.stdout as string;
+            throw e;
+          })
+        : await git(root, ['diff', 'HEAD', '--', file]).catch(() => git(root, ['diff', '--cached', '--', file]));
+    const MAX = 200_000;
+    return out.length > MAX ? out.slice(0, MAX) + `\n… (diff truncated, ${out.length - MAX} more chars)` : out;
+  }
+
   /** Coalesces concurrent refreshes into one git round-trip. */
   refresh(): Promise<GitSnapshot | null> {
     if (this.refreshing) return this.refreshing;
@@ -119,6 +142,7 @@ export class GitService extends EventEmitter {
       return null;
     }
     const root = (await git(this.projectRoot, ['rev-parse', '--show-toplevel'])).trim();
+    this.root = root;
     const [logOut, branchOut, statusOut, stashOut, headOut, symOut] = await Promise.all([
       git(root, [
         'log',
@@ -134,7 +158,7 @@ export class GitService extends EventEmitter {
         'refs/heads',
         'refs/remotes',
       ]).catch(() => ''),
-      git(root, ['status', '--porcelain=v1', '--untracked-files=normal']).catch(() => ''),
+      git(root, ['-c', 'core.quotePath=false', 'status', '--porcelain=v1', '--untracked-files=normal']).catch(() => ''),
       git(root, ['stash', 'list']).catch(() => ''),
       git(root, ['rev-parse', 'HEAD']).catch(() => ''),
       git(root, ['symbolic-ref', '--short', '-q', 'HEAD']).catch(() => ''),

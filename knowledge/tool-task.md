@@ -1,7 +1,8 @@
 ---
 id: tool-task
 title: 子任务 / subagent
-aliases: [task, subtask, subagent, 子代理, 子任务]
+aliases: [subtask, subagent, 子代理, 子任务]
+keywords: [task]
 category: ai
 level: 2
 summary: agent 派生一个独立的子 agent 去完成一个子目标，只把结论带回主上下文，隔离噪音。

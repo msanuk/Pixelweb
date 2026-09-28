@@ -1,5 +1,6 @@
 import type { ClientMessage, ServerMessage } from '@pixelweb/shared';
-import { applyEvent, setState } from './store';
+import { applyEvent, getState, loadModels, setState } from './store';
+import { onOpencodeEvent } from './notify';
 
 let socket: WebSocket | null = null;
 let retry = 1000;
@@ -13,6 +14,7 @@ export function connect(): void {
   };
   socket.onclose = () => {
     setState({ wsConnected: false });
+    if (getState().needLogin) return; // the login screen reloads the page once signed in
     setTimeout(connect, retry);
     retry = Math.min(retry * 2, 10000);
   };
@@ -30,10 +32,15 @@ export function connect(): void {
         break;
       case 'opencode.status':
         setState({ opencodeConnected: msg.connected, opencodeError: msg.error });
+        if (msg.connected && !getState().modelInfo && !getState().needLogin) void loadModels();
         break;
-      case 'opencode.event':
+      case 'opencode.event': {
+        const sid = (msg.event.properties as { sessionID?: string }).sessionID;
+        const prevStatus = sid ? getState().status[sid] : undefined;
         applyEvent(msg.event, msg.receivedAt);
+        onOpencodeEvent(msg.event, prevStatus);
         break;
+      }
       case 'git.snapshot':
         setState({ git: msg.snapshot });
         break;
@@ -42,6 +49,9 @@ export function connect(): void {
         break;
       case 'learning.state':
         setState({ learning: msg.state });
+        break;
+      case 'activity.commits':
+        setState({ commitLinks: msg.links });
         break;
     }
   };

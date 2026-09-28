@@ -1,9 +1,11 @@
 import { useSyncExternalStore } from 'react';
 import type {
   ArchGraph,
+  CommitLink,
   GitSnapshot,
   KnowledgeIndexEntry,
   LearningState,
+  ModelInfo,
   OcEvent,
   OcMessage,
   OcMessageWithParts,
@@ -13,6 +15,8 @@ import type {
   OcTodo,
 } from '@pixelweb/shared';
 import { api } from './api';
+import { displayTitle } from './format';
+import { normalizePermission, repliedPermissionID } from './permissions';
 
 export type Tab = 'timeline' | 'git' | 'arch' | 'knowledge';
 
@@ -24,6 +28,10 @@ export interface FeedItem {
 }
 
 export interface State {
+  /** the server has --password set */
+  authRequired: boolean;
+  /** show the login screen instead of the app */
+  needLogin: boolean;
   wsConnected: boolean;
   opencodeConnected: boolean;
   opencodeError?: string;
@@ -38,7 +46,11 @@ export interface State {
   permissions: OcPermission[];
   teachingSessions: Set<string>;
   git: GitSnapshot | null;
+  /** commits the agent made, tied to the tool call that made them */
+  commitLinks: CommitLink[];
   arch: ArchGraph | null;
+  /** model token limits, for the context meter; null until OpenCode answers */
+  modelInfo: ModelInfo | null;
   knowledge: KnowledgeIndexEntry[];
   terms: { term: string; cardId: string }[];
   learning: LearningState;
@@ -50,9 +62,15 @@ export interface State {
   /** context handed to "explain" — what the user was looking at */
   explainContext: string | null;
   toast: string | null;
+  /** one-shot "jump here" requests between panels; the target panel consumes and clears them */
+  archFocus: string | null;
+  gitFocus: string | null;
+  partFocus: string | null;
 }
 
 const initial: State = {
+  authRequired: false,
+  needLogin: false,
   wsConnected: false,
   opencodeConnected: false,
   sessions: [],
@@ -63,7 +81,9 @@ const initial: State = {
   permissions: [],
   teachingSessions: new Set(),
   git: null,
+  commitLinks: [],
   arch: null,
+  modelInfo: null,
   knowledge: [],
   terms: [],
   learning: { records: {}, updatedAt: 0 },
@@ -73,6 +93,9 @@ const initial: State = {
   openCard: null,
   explainContext: null,
   toast: null,
+  archFocus: null,
+  gitFocus: null,
+  partFocus: null,
 };
 
 let state: State = initial;
@@ -109,7 +132,27 @@ export async function loadInitial(): Promise<void> {
   ]);
   setState({ knowledge, terms, learning });
   await refreshSessions();
+  void loadModels();
+  void loadPermissions();
   api.info().then((i) => setState({ teachingSessions: new Set(i.teachingSessions) })).catch(() => {});
+}
+
+/** Requests already waiting when the page opened (events only bring new ones). */
+export async function loadPermissions(): Promise<void> {
+  try {
+    const pending = (await api.permissions()).map(normalizePermission).filter((p): p is OcPermission => !!p);
+    setState((s) => ({ permissions: [...s.permissions.filter((x) => !pending.some((p) => p.id === x.id)), ...pending] }));
+  } catch {
+    /* OpenCode not reachable: live events still arrive once it is */
+  }
+}
+
+export async function loadModels(): Promise<void> {
+  try {
+    setState({ modelInfo: await api.models() });
+  } catch {
+    /* OpenCode not reachable yet: retried when it connects */
+  }
 }
 
 export async function refreshSessions(): Promise<void> {
@@ -141,6 +184,22 @@ export async function loadMessages(id: string, force = false): Promise<void> {
   }
 }
 
+/** Jump to the architecture graph with the node holding this project-relative file selected. */
+export function showInArch(relPath: string): void {
+  setState({ tab: 'arch', archFocus: relPath, openCard: null });
+}
+
+/** Jump to the git graph with this commit selected. */
+export function showCommit(hash: string): void {
+  setState({ tab: 'git', gitFocus: hash, openCard: null });
+}
+
+/** Open a session's timeline scrolled to one tool call. */
+export async function showPart(sessionID: string, partID: string): Promise<void> {
+  setState({ partFocus: partID, openCard: null });
+  await selectSession(sessionID);
+}
+
 export function openCard(id: string | null, context?: string): void {
   setState({ openCard: id, explainContext: context ?? null });
   if (id) void api.seen(id).then((learning) => setState({ learning })).catch(() => {});
@@ -160,7 +219,7 @@ export async function explain(term: string, context?: string, cardId?: string): 
       tab: 'timeline',
       openCard: null,
     }));
-    toast(`已开启教学会话「${res.title}」，回答会实时出现在时间线`);
+    toast(`已开启教学会话「${displayTitle(res.title)}」，回答会实时出现在时间线`);
     await refreshSessions();
     await loadMessages(res.sessionID, true);
   } catch (e) {
@@ -183,7 +242,8 @@ function summarise(ev: OcEvent): string {
     case 'file.edited':
       return `edited ${p.file}`;
     case 'permission.updated':
-      return `permission: ${p.title}`;
+    case 'permission.asked':
+      return `permission: ${normalizePermission(p)?.title ?? ''}`;
     case 'session.created':
     case 'session.updated':
       return p.info?.title ?? '';
@@ -246,13 +306,15 @@ export function applyEvent(ev: OcEvent, at: number): void {
       }
       break;
     }
-    case 'permission.updated': {
-      const perm = p as unknown as OcPermission;
-      patch.permissions = [...state.permissions.filter((x) => x.id !== perm.id), perm];
+    case 'permission.updated':
+    case 'permission.asked': {
+      const perm = normalizePermission(p);
+      if (perm) patch.permissions = [...state.permissions.filter((x) => x.id !== perm.id), perm];
       break;
     }
     case 'permission.replied': {
-      patch.permissions = state.permissions.filter((x) => x.id !== p.permissionID);
+      const id = repliedPermissionID(p);
+      patch.permissions = state.permissions.filter((x) => x.id !== id);
       break;
     }
     case 'todo.updated': {

@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { parseCard, searchCards } from '../src/knowledge/store.js';
+import { KnowledgeStore, parseCard, searchCards } from '../src/knowledge/store.js';
 import { buildExplainPrompt } from '../src/knowledge/explain.js';
 
 const raw = `---
 id: webhook
 title: Webhook
 aliases: [web hook, 回调]
+keywords: [通知]
 category: web
 level: 1
 summary: 服务端在事件发生时主动向你配置的 URL 发一个 HTTP 请求。
@@ -47,7 +48,19 @@ describe('searchCards', () => {
   it('ranks exact alias matches highest', () => {
     expect(searchCards(cards, 'sse')[0].id).toBe('sse');
     expect(searchCards(cards, '回调')[0].id).toBe('webhook');
+    expect(searchCards(cards, '通知')[0].id).toBe('webhook'); // keywords are searchable
     expect(searchCards(cards, 'zzz')).toEqual([]);
+  });
+});
+
+describe('KnowledgeStore.terms', () => {
+  it('highlights titles and aliases but not search-only keywords', () => {
+    const store = new KnowledgeStore([]);
+    (store as unknown as { cards: Map<string, unknown> }).cards.set('webhook', parseCard(raw, 'webhook'));
+    const terms = store.terms().map((t) => t.term);
+    expect(terms).toEqual(expect.arrayContaining(['Webhook', 'web hook', '回调']));
+    expect(terms).not.toContain('通知');
+    expect(store.find('通知')?.id).toBe('webhook');
   });
 });
 

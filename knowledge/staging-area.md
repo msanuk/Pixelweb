@@ -1,7 +1,8 @@
 ---
 id: staging-area
 title: 暂存区（Staging Area）
-aliases: [暂存区, index, git add, staged]
+aliases: [暂存区, git add, staged]
+keywords: [index]
 category: git
 level: 1
 summary: 工作区与仓库之间的缓冲：`git add` 把改动放进来，`git commit` 只提交这里的内容。

@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { forceCenter, forceCollide, forceLink, forceManyBody, forceSimulation, type SimulationLinkDatum, type SimulationNodeDatum } from 'd3-force';
+import { forceCenter, forceCollide, forceLink, forceManyBody, forceSimulation, forceX, forceY, type SimulationLinkDatum, type SimulationNodeDatum } from 'd3-force';
 import type { ArchGraph as Graph, ArchNode } from '@pixelweb/shared';
-import { explain, openCard, useStore } from '../lib/store';
+import { explain, loadMessages, openCard, setState, toast, useStore } from '../lib/store';
+import { nodeForPath, sessionFiles, type Touch } from '../lib/activity';
+import { displayTitle } from '../lib/format';
 import { send } from '../lib/ws';
 import { Highlight } from '../components/Highlight';
 
@@ -17,16 +19,30 @@ interface SimLink extends SimulationLinkDatum<SimNode> {
   cyclic: boolean;
 }
 
-const LANG_COLOR: Record<string, string> = { ts: '#3b82f6', js: '#eab308', py: '#22c55e', other: '#94a3b8' };
+// Muted series colours from the theme (styles.css), so the graph follows light/dark switches.
+const LANG_COLOR: Record<string, string> = { ts: 'var(--series-4)', js: 'var(--series-3)', py: 'var(--series-2)', other: 'var(--muted)' };
+const DIR_COLOR = 'var(--series-1)';
+const EXTERNAL_COLOR = 'var(--muted)';
 
 export function ArchGraph() {
   const graph = useStore((s) => s.arch);
   const [level, setLevel] = useState<'file' | 'dir'>('dir');
   const [selected, setSelected] = useState<string | null>(null);
+  const [showExternal, setShowExternal] = useState(false);
   const [positions, setPositions] = useState<Map<string, { x: number; y: number }>>(new Map());
   const [tick, setTick] = useState(0);
+  const cardOpen = useStore((s) => s.openCard !== null);
   const svgRef = useRef<SVGSVGElement>(null);
   const size = useSize(svgRef);
+  const [showSession, setShowSession] = useState(true);
+  const sessionID = useStore((s) => s.selectedSession);
+  const sessionTitle = useStore((s) => s.sessions.find((x) => x.id === s.selectedSession)?.title);
+  const messages = useStore((s) => (s.selectedSession ? s.messages[s.selectedSession] : undefined));
+  const focus = useStore((s) => s.archFocus);
+
+  useEffect(() => {
+    if (sessionID) void loadMessages(sessionID);
+  }, [sessionID]);
 
   useEffect(() => {
     if (graph && graph.level !== level) send({ type: 'arch.refresh', level });
@@ -34,37 +50,70 @@ export function ArchGraph() {
 
   const sim = useMemo(() => {
     if (!graph) return null;
+    // External packages are hidden by default: they crowd the canvas and say little about the project's own structure.
+    const visible = showExternal ? graph.nodes : graph.nodes.filter((n) => n.kind !== 'external');
+    const ids = new Set(visible.map((n) => n.id));
+    const edges = graph.edges.filter((e) => ids.has(e.source) && ids.has(e.target));
     const inDeg = new Map<string, number>();
     const outDeg = new Map<string, number>();
-    for (const e of graph.edges) {
+    for (const e of edges) {
       inDeg.set(e.target, (inDeg.get(e.target) ?? 0) + e.weight);
       outDeg.set(e.source, (outDeg.get(e.source) ?? 0) + e.weight);
     }
-    const pairs = new Set(graph.edges.map((e) => e.source + '>' + e.target));
-    const maxLoc = Math.max(1, ...graph.nodes.map((n) => n.loc));
-    const nodes: SimNode[] = graph.nodes.map((n) => ({
+    const pairs = new Set(edges.map((e) => e.source + '>' + e.target));
+    const maxLoc = Math.max(1, ...visible.map((n) => n.loc));
+    const nodes: SimNode[] = visible.map((n) => ({
       id: n.id,
       node: n,
       r: n.kind === 'external' ? 7 : 8 + Math.sqrt(n.loc / maxLoc) * 22,
       inDeg: inDeg.get(n.id) ?? 0,
       outDeg: outDeg.get(n.id) ?? 0,
     }));
-    const links: SimLink[] = graph.edges.map((e) => ({
+    const links: SimLink[] = edges.map((e) => ({
       source: e.source,
       target: e.target,
       weight: e.weight,
       cyclic: pairs.has(e.target + '>' + e.source),
     }));
     return { nodes, links };
-  }, [graph]);
+  }, [graph, showExternal]);
+
+  // files the selected session read or edited, grouped by the node they fall in
+  const touched = useMemo(() => (graph ? sessionFiles(messages, graph.root) : new Map<string, Touch>()), [messages, graph]);
+  const nodeTouch = useMemo(() => {
+    const m = new Map<string, { edited: boolean; files: [string, Touch][] }>();
+    if (!sim) return m;
+    const nodes = sim.nodes.map((n) => n.node);
+    for (const [file, touch] of touched) {
+      const node = nodeForPath(nodes, file);
+      if (!node) continue;
+      const entry = m.get(node.id) ?? { edited: false, files: [] };
+      entry.files.push([file, touch]);
+      entry.edited ||= touch === 'edit';
+      m.set(node.id, entry);
+    }
+    return m;
+  }, [touched, sim]);
+
+  // "locate in architecture graph" from the timeline
+  useEffect(() => {
+    if (!focus || !sim) return;
+    setState({ archFocus: null });
+    const node = nodeForPath(sim.nodes.map((n) => n.node), focus);
+    if (node) setSelected(node.id);
+    else toast(`${focus} 不在依赖图里（只分析 TS / JS / Python 源码）`);
+  }, [focus, sim]);
 
   useEffect(() => {
     if (!sim || !size.w) return;
     const simulation = forceSimulation(sim.nodes)
       .force('link', forceLink<SimNode, SimLink>(sim.links).id((d) => d.id).distance((l) => 60 + 20 / Math.sqrt(l.weight)).strength(0.4))
       .force('charge', forceManyBody().strength(-220))
-      .force('collide', forceCollide<SimNode>().radius((d) => d.r + 14))
+      .force('collide', forceCollide<SimNode>().radius((d) => d.r + 22))
       .force('center', forceCenter(size.w / 2, size.h / 2))
+      // gentle pull to the middle so unconnected nodes don't drift to the edges
+      .force('x', forceX<SimNode>(size.w / 2).strength(0.05))
+      .force('y', forceY<SimNode>(size.h / 2).strength(0.05))
       .alphaDecay(0.05);
     simulation.on('tick', () => {
       const m = new Map<string, { x: number; y: number }>();
@@ -94,6 +143,9 @@ export function ArchGraph() {
     if (t === selected) neighbours.add(s);
   }
   const cyclicCount = sim ? sim.links.filter((l) => l.cyclic).length / 2 : 0;
+  const editedCount = [...touched.values()].filter((t) => t === 'edit').length;
+  const ringsOn = showSession && nodeTouch.size > 0;
+  const selTouch = selNode ? nodeTouch.get(selNode.id) : undefined;
 
   return (
     <div className="arch">
@@ -114,6 +166,15 @@ export function ArchGraph() {
           {graph.stats.skipped > 0 && <span className="muted"> · 已跳过 {graph.stats.skipped} 个生成或超限文件</span>}
         </div>
         <div className="actions">
+          {touched.size > 0 && (
+            <label className="follow" title={`高亮会话「${displayTitle(sessionTitle ?? '')}」读过和改过的文件`}>
+              <input type="checkbox" checked={showSession} onChange={(e) => setShowSession(e.target.checked)} /> 本会话 · 改 {editedCount} · 读{' '}
+              {touched.size - editedCount}
+            </label>
+          )}
+          <label className="follow">
+            <input type="checkbox" checked={showExternal} onChange={(e) => setShowExternal(e.target.checked)} /> 外部包
+          </label>
           <label>
             粒度{' '}
             <select value={level} onChange={(e) => setLevel(e.target.value as 'file' | 'dir')}>
@@ -125,54 +186,75 @@ export function ArchGraph() {
         </div>
       </header>
       <div className="arch-body">
-        <svg ref={svgRef} className="arch-svg" data-tick={tick}>
-          <defs>
-            <marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-              <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--edge)" />
-            </marker>
-          </defs>
-          {sim?.links.map((l, i) => {
-            const s = typeof l.source === 'object' ? (l.source as SimNode) : null;
-            const t = typeof l.target === 'object' ? (l.target as SimNode) : null;
-            if (!s || !t) return null;
-            const ps = positions.get(s.id);
-            const pt = positions.get(t.id);
-            if (!ps || !pt) return null;
-            const dx = pt.x - ps.x, dy = pt.y - ps.y;
-            const len = Math.hypot(dx, dy) || 1;
-            const ex = pt.x - (dx / len) * (t.r + 2);
-            const ey = pt.y - (dy / len) * (t.r + 2);
-            const dim = selected && s.id !== selected && t.id !== selected;
-            return (
-              <line
-                key={i}
-                x1={ps.x}
-                y1={ps.y}
-                x2={ex}
-                y2={ey}
-                className={`edge ${l.cyclic ? 'cyclic' : ''} ${dim ? 'dim' : ''}`}
-                strokeWidth={Math.min(1 + Math.log2(l.weight), 5)}
-                markerEnd="url(#arrow)"
-              />
-            );
-          })}
-          {sim?.nodes.map((n) => {
-            const p = positions.get(n.id);
-            if (!p) return null;
-            const dim = selected && selected !== n.id && !neighbours.has(n.id);
-            const color = n.node.kind === 'external' ? '#94a3b8' : n.node.kind === 'file' ? LANG_COLOR[n.node.language ?? 'other'] : '#8b5cf6';
-            return (
-              <g key={n.id} transform={`translate(${p.x},${p.y})`} className={`node ${dim ? 'dim' : ''} ${selected === n.id ? 'selected' : ''}`} onClick={() => setSelected(n.id === selected ? null : n.id)}>
-                <circle r={n.r} fill={color} fillOpacity={n.node.kind === 'external' ? 0.35 : 0.85} stroke={color} strokeDasharray={n.node.kind === 'external' ? '3 2' : undefined} />
-                <text dy={n.r + 12} textAnchor="middle" className="node-label">
-                  {n.node.label}
-                </text>
-              </g>
-            );
-          })}
-        </svg>
-        <aside className="arch-side">
-          {selNode ? (
+        <div className="arch-canvas">
+          <svg ref={svgRef} className="arch-svg" data-tick={tick} onClick={(e) => e.target === e.currentTarget && setSelected(null)}>
+            <defs>
+              <marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--edge)" />
+              </marker>
+            </defs>
+            {sim?.links.map((l, i) => {
+              const s = typeof l.source === 'object' ? (l.source as SimNode) : null;
+              const t = typeof l.target === 'object' ? (l.target as SimNode) : null;
+              if (!s || !t) return null;
+              const ps = positions.get(s.id);
+              const pt = positions.get(t.id);
+              if (!ps || !pt) return null;
+              const dx = pt.x - ps.x, dy = pt.y - ps.y;
+              const len = Math.hypot(dx, dy) || 1;
+              const ex = pt.x - (dx / len) * (t.r + 2);
+              const ey = pt.y - (dy / len) * (t.r + 2);
+              const dim = selected && s.id !== selected && t.id !== selected;
+              return (
+                <line
+                  key={i}
+                  x1={ps.x}
+                  y1={ps.y}
+                  x2={ex}
+                  y2={ey}
+                  className={`edge ${l.cyclic ? 'cyclic' : ''} ${dim ? 'dim' : ''}`}
+                  strokeWidth={Math.min(1 + Math.log2(l.weight), 5)}
+                  markerEnd="url(#arrow)"
+                />
+              );
+            })}
+            {sim?.nodes.map((n) => {
+              const p = positions.get(n.id);
+              if (!p) return null;
+              const dim = selected && selected !== n.id && !neighbours.has(n.id);
+              const color = n.node.kind === 'external' ? EXTERNAL_COLOR : n.node.kind === 'file' ? LANG_COLOR[n.node.language ?? 'other'] : DIR_COLOR;
+              const touch = ringsOn ? nodeTouch.get(n.id) : undefined;
+              return (
+                <g key={n.id} transform={`translate(${p.x},${p.y})`} className={`node ${dim ? 'dim' : ''} ${selected === n.id ? 'selected' : ''}`} onClick={() => setSelected(n.id === selected ? null : n.id)}>
+                  {touch && <circle r={n.r + 4} className={`touch-ring ${touch.edited ? 'edit' : 'read'}`} />}
+                  <circle r={n.r} fill={color} fillOpacity={n.node.kind === 'external' ? 0.12 : 0.45} stroke={color} strokeDasharray={n.node.kind === 'external' ? '3 2' : undefined} />
+                  <text dy={n.r + 12} textAnchor="middle" className="node-label">
+                    {n.node.label}
+                  </text>
+                </g>
+              );
+            })}
+          </svg>
+          <div className="arch-legend">
+            <ul className="legend">
+              <li><i style={{ background: DIR_COLOR }} /> 目录</li>
+              <li><i style={{ background: LANG_COLOR.ts }} /> TS</li>
+              <li><i style={{ background: LANG_COLOR.js }} /> JS</li>
+              <li><i style={{ background: LANG_COLOR.py }} /> Python</li>
+              {showExternal && <li><i className="hollow" /> 外部包</li>}
+              {ringsOn && <li><i className="ring edit" /> 本会话改过</li>}
+              {ringsOn && <li><i className="ring read" /> 只读过</li>}
+            </ul>
+            <p className="muted small">
+              大小 = 代码行 · 粗细 = <Highlight text="import" /> 数 · 红边 ={' '}
+              <button className="term" onClick={() => openCard('coupling')}>
+                循环依赖
+              </button>
+            </p>
+          </div>
+        </div>
+        {selNode && !cardOpen && (
+          <aside className="arch-side">
             <section>
               <h4 className="mono">{selNode.node.id || '(root)'}</h4>
               <dl>
@@ -193,6 +275,19 @@ export function ArchGraph() {
                 <dt>依赖他人（出边）</dt>
                 <dd>{selNode.outDeg}</dd>
               </dl>
+              {selTouch && (
+                <>
+                  <h5>本会话在这里</h5>
+                  <ul className="touched-list">
+                    {selTouch.files.map(([f, t]) => (
+                      <li key={f}>
+                        <span className={`touch-label ${t}`}>{t === 'edit' ? '改' : '读'}</span>
+                        <span className="mono">{f}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
               <h5>相邻节点</h5>
               <ul className="neighbour-list">
                 {[...neighbours].map((id) => (
@@ -211,30 +306,11 @@ export function ArchGraph() {
                   )
                 }
               >
-                📖 让 OpenCode 解释这个模块
+                让 OpenCode 解释这个模块
               </button>
             </section>
-          ) : (
-            <section>
-              <p className="muted">点击节点查看依赖关系。</p>
-              <p className="muted">
-                节点大小 = 代码行数；边越粗，<Highlight text="import" /> 越多；红色边表示{' '}
-                <button className="term" onClick={() => openCard('coupling')}>
-                  循环依赖
-                </button>
-                ；虚线为<button className="term" onClick={() => openCard('sdk')}>外部包</button>。
-              </p>
-              <h5>图例</h5>
-              <ul className="legend">
-                <li><i style={{ background: '#8b5cf6' }} /> 目录</li>
-                <li><i style={{ background: LANG_COLOR.ts }} /> TypeScript</li>
-                <li><i style={{ background: LANG_COLOR.js }} /> JavaScript</li>
-                <li><i style={{ background: LANG_COLOR.py }} /> Python</li>
-                <li><i style={{ background: '#94a3b8' }} /> 外部依赖</li>
-              </ul>
-            </section>
-          )}
-        </aside>
+          </aside>
+        )}
       </div>
     </div>
   );

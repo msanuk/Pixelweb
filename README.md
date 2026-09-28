@@ -41,11 +41,30 @@ node packages/server/dist/index.js --project ~/your-project
 
 ```
 --opencode <url>           opencode serve 地址   (默认 http://127.0.0.1:4096)
+--opencode-username <u>    opencode 的用户名     (默认 opencode，同 OPENCODE_SERVER_USERNAME)
 --opencode-password <pw>   如果 opencode 设置了 OPENCODE_SERVER_PASSWORD
 --project <dir>            要可视化的项目目录   (默认当前目录)
 --port <n>                 PixelWeb 端口        (默认 7420)
+--host <addr>              PixelWeb 监听地址     (默认 127.0.0.1)
+--password <pw>            访问 PixelWeb 需要的密码 (同 PIXELWEB_PASSWORD)
 --verbose                  打印每个 opencode 事件
 ```
+
+### 部署到服务器
+
+PixelWeb 要读取项目的 git 和源码，并把项目路径传给 OpenCode，所以它必须和 `opencode serve`、项目文件在**同一台机器**上。OpenCode 只需监听本机：
+
+```bash
+# 服务器上（Windows 路径同理，如 D:\code\proj）
+cd /path/to/project && opencode serve --port 4096
+node packages/server/dist/index.js --project /path/to/project --host 0.0.0.0 --password <访问密码>
+```
+
+- PixelWeb 能替你给 agent 发 prompt、批准它执行 shell 命令。**不设 `--password` 就不要监听 127.0.0.1 以外的地址**，启动时也会给出警告。
+- 普通 HTTP 下密码和登录 cookie 是明文传输的。在不可信的网络上，请放到 HTTPS 反向代理后面，或者不开放端口、改用 SSH 隧道：`ssh -L 7420:127.0.0.1:7420 user@server`。
+- 浏览器只在 HTTPS 或 localhost 下允许系统通知。通过 `http://服务器IP:7420` 访问时，设置里的“提醒”只能在标签页标题上显示未读数；用 SSH 隧道访问 `http://localhost:7420` 就能收到系统通知。
+- 反向代理需要保留 `Host` 或传 `X-Forwarded-Host`：PixelWeb 会拒绝来源（Origin）与之不符的写请求和 WebSocket 连接。
+- `npm run dev` 依赖 shell 的 `&`，在 Windows 上请用 `npm run build` 加 `npm start`。
 
 ## 开发
 

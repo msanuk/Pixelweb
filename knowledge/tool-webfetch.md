@@ -1,7 +1,8 @@
 ---
 id: tool-webfetch
 title: webfetch 工具
-aliases: [webfetch, 抓网页, fetch]
+aliases: [webfetch, 抓网页]
+keywords: [fetch]
 category: ai
 level: 1
 summary: 让 agent 抓取一个 URL 的内容读进上下文，常用于查文档。

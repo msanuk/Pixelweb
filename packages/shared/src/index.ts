@@ -18,6 +18,8 @@ export interface OcSession {
 }
 
 export interface OcTokens {
+  /** newer OpenCode versions report the sum directly */
+  total?: number;
   input: number;
   output: number;
   reasoning: number;
@@ -46,6 +48,8 @@ export interface OcAssistantMessage {
   tokens: OcTokens;
   error?: { name: string; data: { message?: string } };
   finish?: string;
+  /** the summary written by a compaction */
+  summary?: boolean;
 }
 
 export type OcMessage = OcUserMessage | OcAssistantMessage;
@@ -92,6 +96,8 @@ export interface OcMessageWithParts {
 export interface OcPermission {
   id: string;
   type: string;
+  /** what is being asked for, e.g. the bash command; a list for multi-pattern requests */
+  pattern?: string | string[];
   sessionID: string;
   messageID: string;
   callID?: string;
@@ -99,6 +105,23 @@ export interface OcPermission {
   metadata: Record<string, unknown>;
   time: { created: number };
 }
+
+/** A model's token limits, from OpenCode's `/config/providers`. */
+export interface OcModelLimit {
+  context: number;
+  /** some models cap the prompt separately from the whole window */
+  input?: number;
+  output: number;
+}
+
+/** What PixelWeb needs to draw a context meter: limits per "providerID/modelID", plus compaction settings. */
+export interface ModelInfo {
+  limits: Record<string, OcModelLimit>;
+  compaction: { auto: boolean; reserved?: number };
+}
+
+/** Allowed answers to an OpenCode permission request. */
+export type PermissionResponse = 'once' | 'always' | 'reject';
 
 export interface OcTodo {
   id: string;
@@ -152,6 +175,21 @@ export interface GitSnapshot {
   stashCount: number;
 }
 
+/**
+ * A commit the agent made itself — a completed bash `git commit` tool call —
+ * tied back to the session and tool part that ran it.
+ */
+export interface CommitLink {
+  sessionID: string;
+  messageID: string;
+  partID: string;
+  /** full hash once matched against the git log; else the short hash printed by `git commit`; absent if neither is known */
+  hash?: string;
+  /** when the tool call ran, ms since epoch */
+  start: number;
+  end: number;
+}
+
 // ---- Architecture graph
 
 export interface ArchNode {
@@ -192,7 +230,10 @@ export interface QuizItem {
 export interface KnowledgeCard {
   id: string;
   title: string;
+  /** Highlighted wherever they appear in agent text — keep them specific. */
   aliases: string[];
+  /** Search-only synonyms: too generic to highlight (请求, API, fetch…). */
+  keywords: string[];
   category: CardCategory;
   /** One sentence. Fits working memory. */
   summary: string;
@@ -211,6 +252,7 @@ export interface KnowledgeIndexEntry {
   id: string;
   title: string;
   aliases: string[];
+  keywords?: string[];
   category: CardCategory;
   summary: string;
   level: 1 | 2 | 3;
@@ -258,7 +300,8 @@ export type ServerMessage =
   | { type: 'opencode.event'; event: OcEvent; directory?: string; receivedAt: number }
   | { type: 'git.snapshot'; snapshot: GitSnapshot }
   | { type: 'arch.graph'; graph: ArchGraph }
-  | { type: 'learning.state'; state: LearningState };
+  | { type: 'learning.state'; state: LearningState }
+  | { type: 'activity.commits'; links: CommitLink[] };
 
 export type ClientMessage =
   | { type: 'git.refresh' }

@@ -1,26 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { OcMessageWithParts, OcPart } from '@pixelweb/shared';
+import type { OcMessageWithParts, OcPart, OcPermission, PermissionResponse } from '@pixelweb/shared';
 import { api } from '../lib/api';
-import { explain, loadMessages, openCard, toast, useStore } from '../lib/store';
-import { fmtDuration, fmtNum, fmtTime } from '../lib/format';
+import { explain, getState, loadMessages, openCard, setState, showCommit, showInArch, toast, useStore } from '../lib/store';
+import { displayTitle, fmtDuration, fmtNum, fmtTime } from '../lib/format';
 import { Markdown } from '../components/Markdown';
 import { Highlight } from '../components/Highlight';
+import { DiffStat, DiffView } from '../components/DiffView';
+import { lineDiff, parseUnified, type Diff } from '../lib/diff';
+import { toProjectPath, toolFiles } from '../lib/activity';
+import { contextUsage } from '../lib/context';
+import { cardForTool } from '../lib/tools';
+import { summarizeSession } from '../lib/summary';
+import { buildMatcher } from '../lib/terms';
 
-const TOOL_CARD: Record<string, string> = {
-  bash: 'tool-bash',
-  read: 'tool-read-edit',
-  edit: 'tool-read-edit',
-  write: 'tool-read-edit',
-  multiedit: 'tool-read-edit',
-  patch: 'tool-read-edit',
-  grep: 'tool-search',
-  glob: 'tool-search',
-  list: 'tool-search',
-  webfetch: 'tool-webfetch',
-  task: 'tool-task',
-  todowrite: 'tool-todo',
-  todoread: 'tool-todo',
-};
 
 export function Timeline() {
   const sessionID = useStore((s) => s.selectedSession);
@@ -36,13 +28,19 @@ export function Timeline() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const [follow, setFollow] = useState(true);
   const [text, setText] = useState('');
+  const partFocus = useStore((s) => s.partFocus);
 
   useEffect(() => {
     if (sessionID) void loadMessages(sessionID);
   }, [sessionID]);
 
+  // arriving from another panel to look at one tool call: stop pinning the view to the bottom
   useEffect(() => {
-    if (follow) bottomRef.current?.scrollIntoView({ block: 'end' });
+    if (partFocus) setFollow(false);
+  }, [partFocus]);
+
+  useEffect(() => {
+    if (follow && !getState().partFocus) bottomRef.current?.scrollIntoView({ block: 'end' });
   }, [messages, follow]);
 
   const totals = useMemo(() => {
@@ -89,7 +87,7 @@ export function Timeline() {
       <header className="timeline-head">
         <div>
           <h3>
-            {isTeaching && <span className="chip teach">教学</span>} {session?.title ?? sessionID}
+            {isTeaching && <span className="chip teach">教学</span>} {session ? displayTitle(session.title) : sessionID}
           </h3>
           <div className="meta">
             <span className={`dot ${status === 'busy' ? 'busy' : status === 'retry' ? 'retry' : ''}`} />
@@ -103,6 +101,7 @@ export function Timeline() {
             </button>{' '}
             {fmtNum(totals.input)} / {fmtNum(totals.output)} · ${totals.cost.toFixed(4)}
           </div>
+          <ContextMeter messages={messages} sessionTitle={session?.title ?? ''} />
         </div>
         <div className="actions">
           <label className="follow">
@@ -116,18 +115,6 @@ export function Timeline() {
           )}
         </div>
       </header>
-
-      {permissions.length > 0 && (
-        <div className="banner warn">
-          <strong>
-            等待
-            <button className="term" onClick={() => openCard('permission', permissions.map((p) => p.title).join('\n'))}>
-              权限确认
-            </button>
-          </strong>
-          ：{permissions.map((p) => p.title).join('；')}（请在 OpenCode 里回复）
-        </div>
-      )}
 
       {todos && todos.length > 0 && (
         <details className="todos" open>
@@ -154,8 +141,13 @@ export function Timeline() {
       }}>
         {loading && !messages && <p className="muted">加载消息…</p>}
         {messages?.map((m) => <Message key={m.info.id} m={m} sessionTitle={session?.title ?? ''} />)}
+        {status !== 'busy' && messages?.some((m) => m.info.role === 'assistant') && (
+          <SessionRecap messages={messages} sessionID={sessionID} sessionTitle={session ? displayTitle(session.title) : sessionID} />
+        )}
         <div ref={bottomRef} />
       </div>
+
+      {permissions.length > 0 && <PermissionRequests permissions={permissions} />}
 
       <form
         className="composer"
@@ -173,6 +165,187 @@ export function Timeline() {
           发送
         </button>
       </form>
+    </div>
+  );
+}
+
+/**
+ * Recap under an idle session: what happened, and which concepts came up —
+ * the ones you haven't mastered first, each opening its card.
+ */
+function SessionRecap({ messages, sessionID, sessionTitle }: { messages: OcMessageWithParts[]; sessionID: string; sessionTitle: string }) {
+  const terms = useStore((s) => s.terms);
+  const knowledge = useStore((s) => s.knowledge);
+  const records = useStore((s) => s.learning.records);
+  const root = useStore((s) => s.server?.projectRoot ?? s.arch?.root ?? '');
+  const commits = useStore((s) => s.commitLinks);
+  const isTeaching = useStore((s) => s.teachingSessions.has(sessionID));
+  const matcher = useMemo(() => buildMatcher(terms), [terms]);
+  const sum = useMemo(() => summarizeSession(messages, matcher, root), [messages, matcher, root]);
+  const commitCount = useMemo(() => commits.filter((l) => l.sessionID === sessionID).length, [commits, sessionID]);
+
+  const titleOf = (id: string) => knowledge.find((k) => k.id === id)?.title ?? id;
+  const open = sum.concepts.filter((c) => records[c.cardId]?.mastery !== 'mastered');
+  const done = sum.concepts.filter((c) => records[c.cardId]?.mastery === 'mastered');
+  const ctx = (c: { cardId: string; count: number }) => `在会话「${sessionTitle}」里出现了 ${c.count} 次`;
+
+  return (
+    <details className="recap" open>
+      <summary>
+        <span className="strong">会话小结</span>
+        <span className="muted">
+          {sum.turns} 轮 · {sum.toolCalls} 次工具调用{sum.toolErrors ? `（失败 ${sum.toolErrors}）` : ''}
+          {sum.edited.length > 0 && ` · 改了 ${sum.edited.length} 个文件`}
+          {commitCount > 0 && ` · ${commitCount} 次提交`}
+          {sum.cost > 0 && ` · $${sum.cost.toFixed(4)}`}
+        </span>
+      </summary>
+      {sum.edited.length > 0 && (
+        <p className="recap-files">
+          {sum.edited.slice(0, 8).map((f) => (
+            <button key={f} className="chip mono link" onClick={() => showInArch(f)} title="在架构图中定位">
+              {f.split('/').pop()}
+            </button>
+          ))}
+          {sum.edited.length > 8 && <span className="muted small">等 {sum.edited.length} 个</span>}
+        </p>
+      )}
+      {sum.concepts.length > 0 ? (
+        <>
+          <h5>{open.length > 0 ? `碰到的概念 · ${open.length} 个还没掌握` : '碰到的概念都已掌握'}</h5>
+          <p className="recap-concepts">
+            {open.map((c) => (
+              <button key={c.cardId} className={`chip link ${records[c.cardId] ? '' : 'new'}`} onClick={() => openCard(c.cardId, ctx(c))} title={records[c.cardId] ? '看过，还没掌握' : '还没看过'}>
+                {titleOf(c.cardId)}
+                {c.count > 1 && <span className="muted"> ×{c.count}</span>}
+              </button>
+            ))}
+          </p>
+          {done.length > 0 && (
+            <details className="recap-done">
+              <summary className="muted small">已掌握 {done.length} 个</summary>
+              <p className="recap-concepts">
+                {done.map((c) => (
+                  <button key={c.cardId} className="chip link" onClick={() => openCard(c.cardId, ctx(c))}>
+                    {titleOf(c.cardId)}
+                  </button>
+                ))}
+              </p>
+            </details>
+          )}
+          {open.length > 0 && !isTeaching && (
+            <button
+              className="link-btn"
+              onClick={() =>
+                void explain(
+                  `${sessionTitle} · ${Math.min(open.length, 6)} 个概念`,
+                  `请结合会话「${sessionTitle}」实际做的事，依次讲这些概念：${open.slice(0, 6).map((c) => titleOf(c.cardId)).join('、')}。\n` +
+                    `这次会话：${sum.turns} 轮，${sum.toolCalls} 次工具调用，改了 ${sum.edited.slice(0, 10).join(', ') || '（没有文件）'}。`,
+                )
+              }
+              title="开一个只读的教学会话，拿这次会话当例子讲"
+            >
+              让 OpenCode 结合这次会话讲讲 →
+            </button>
+          )}
+        </>
+      ) : (
+        <p className="muted small">这次会话里没有出现知识库里的概念。</p>
+      )}
+    </details>
+  );
+}
+
+/** How full the context window is after the latest request, and how far that is from OpenCode compacting on its own. */
+function ContextMeter({ messages, sessionTitle }: { messages: OcMessageWithParts[] | undefined; sessionTitle: string }) {
+  const info = useStore((s) => s.modelInfo);
+  const u = useMemo(() => contextUsage(messages, info), [messages, info]);
+  if (!u) return null;
+  const ctx =
+    `会话「${sessionTitle}」使用 ${u.model}` +
+    (u.limit ? `：上下文窗口 ${u.limit} tokens，最近一次请求用了 ${u.used}，OpenCode 约在 ${u.threshold} 时自动压缩` : `：最近一次请求用了 ${u.used} tokens`);
+  if (u.justCompacted) {
+    return (
+      <div className="ctx-meter">
+        <button className="term" onClick={() => openCard('compaction', ctx)}>
+          上下文
+        </button>
+        <span className="muted">刚压缩过，下一次请求后更新</span>
+      </div>
+    );
+  }
+  const pct = u.limit ? Math.min(1, u.used / u.limit) : 0;
+  const left = u.threshold - u.used;
+  const near = u.autoCompact && u.threshold > 0 && u.used >= u.threshold * 0.85;
+  return (
+    <div className={`ctx-meter ${near ? 'near' : ''}`}>
+      <button className="term" onClick={() => openCard('context-window', ctx)}>
+        上下文
+      </button>
+      {u.limit > 0 && (
+        <span className="ctx-bar" role="meter" aria-valuemin={0} aria-valuemax={u.limit} aria-valuenow={u.used} aria-label="上下文用量">
+          <i style={{ width: `${pct * 100}%` }} />
+          {u.autoCompact && u.threshold > 0 && <b style={{ left: `${(u.threshold / u.limit) * 100}%` }} title="OpenCode 在这里自动压缩" />}
+        </span>
+      )}
+      <span className="mono">
+        {fmtNum(u.used)}
+        {u.limit > 0 && ` / ${fmtNum(u.limit)} · ${Math.round(pct * 100)}%`}
+      </span>
+      {u.limit > 0 &&
+        (u.autoCompact ? (
+          <button className="term" onClick={() => openCard('compaction', ctx)}>
+            {left > 0 ? `距自动压缩约 ${fmtNum(left)}` : '下一步会自动压缩'}
+          </button>
+        ) : (
+          <span>自动压缩已关闭</span>
+        ))}
+    </div>
+  );
+}
+
+/** Pending permission requests, answered in place instead of switching to the OpenCode terminal. */
+function PermissionRequests({ permissions }: { permissions: OcPermission[] }) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const reply = async (p: OcPermission, response: PermissionResponse) => {
+    setBusy(p.id);
+    try {
+      await api.replyPermission(p.sessionID, p.id, response);
+      // opencode also sends permission.replied; drop it now so the bar doesn't linger
+      setState((s) => ({ permissions: s.permissions.filter((x) => x.id !== p.id) }));
+    } catch (e) {
+      toast(`回复权限失败：${e instanceof Error ? e.message : e}`);
+    } finally {
+      setBusy(null);
+    }
+  };
+  return (
+    <div className="permissions" role="alert">
+      {permissions.map((p) => {
+        const what = Array.isArray(p.pattern) ? p.pattern.join(' ') : p.pattern || p.title;
+        return (
+          <div key={p.id} className="perm">
+            <span className="perm-what">
+              <button className="term strong" onClick={() => openCard('permission', `${p.type}: ${what}`)}>
+                需要权限
+              </button>
+              <span className="chip">{p.type}</span>
+              <code title={p.title}>{what}</code>
+            </span>
+            <span className="actions">
+              <button className="primary" disabled={busy === p.id} onClick={() => void reply(p, 'once')}>
+                允许一次
+              </button>
+              <button disabled={busy === p.id} onClick={() => void reply(p, 'always')} title="同类请求以后自动允许">
+                总是允许
+              </button>
+              <button className="danger" disabled={busy === p.id} onClick={() => void reply(p, 'reject')}>
+                拒绝
+              </button>
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -289,12 +462,39 @@ function Part({ p, sessionTitle }: { p: OcPart; sessionTitle: string }) {
 function ToolPart({ p, sessionTitle }: { p: Extract<OcPart, { type: 'tool' }>; sessionTitle: string }) {
   const [open, setOpen] = useState(false);
   const st = p.state;
-  const cardId = TOOL_CARD[p.tool.toLowerCase()] ?? (p.tool.includes('_') ? 'mcp' : 'tool-call');
+  const cardId = cardForTool(p.tool);
   const title = st.status === 'completed' || st.status === 'running' ? (st as any).title : undefined;
   const dur = st.status === 'completed' || st.status === 'error' ? fmtDuration(st.time.end - st.time.start) : null;
   const ctx = `会话「${sessionTitle}」中的工具调用 ${p.tool}\ninput: ${JSON.stringify(st.input).slice(0, 400)}`;
+  const diff = useMemo(() => toolDiff(p), [p]);
+  const root = useStore((s) => s.server?.projectRoot ?? s.arch?.root ?? '');
+  const files = useMemo(
+    () => [...new Set(toolFiles(p).map((f) => toProjectPath(f.path, root)).filter((f): f is string => !!f))],
+    [p, root],
+  );
+  const commit = useStore((s) => s.commitLinks.find((l) => l.partID === p.id));
+  const focused = useStore((s) => s.partFocus === p.id);
+  const ref = useRef<HTMLDivElement>(null);
+  const [flash, setFlash] = useState(false);
+
+  useEffect(() => {
+    if (!flash) return;
+    const t = setTimeout(() => setFlash(false), 1600);
+    return () => clearTimeout(t);
+  }, [flash]);
+
+  useEffect(() => {
+    if (!focused) return;
+    setOpen(true);
+    setFlash(true);
+    ref.current?.scrollIntoView({ block: 'center' });
+    // cleared a moment later so the timeline's follow-to-bottom effect in this same render still sees it
+    const t = setTimeout(() => setState({ partFocus: null }), 300);
+    return () => clearTimeout(t);
+  }, [focused]);
+
   return (
-    <div className={`part tool status-${st.status}`}>
+    <div ref={ref} className={`part tool status-${st.status} ${open ? 'open' : ''} ${flash ? 'flash' : ''}`}>
       <div className="tool-head" onClick={() => setOpen(!open)}>
         <span className={`dot ${st.status}`} />
         <button
@@ -308,24 +508,41 @@ function ToolPart({ p, sessionTitle }: { p: Extract<OcPart, { type: 'tool' }>; s
           {p.tool}
         </button>
         <span className="tool-title">{title ?? summariseInput(p.tool, st.input)}</span>
-        {dur && <span className="muted">{dur}</span>}
-        <button
-          className="icon-btn"
-          title="让 OpenCode 结合这次调用解释"
-          onClick={(e) => {
-            e.stopPropagation();
-            void explain(`${p.tool} 工具在这一步做了什么`, ctx, cardId);
-          }}
-        >
-          📖
-        </button>
-        <span className="muted">{open ? '▾' : '▸'}</span>
+        {diff && (diff.additions > 0 || diff.deletions > 0) && <DiffStat diff={diff} />}
+        {commit?.hash && (
+          <button
+            className="chip mono"
+            onClick={(e) => {
+              e.stopPropagation();
+              showCommit(commit.hash!);
+            }}
+            title="在 Git 图中查看这次提交"
+          >
+            {commit.hash.slice(0, 7)}
+          </button>
+        )}
+        {st.status === 'error' && <span className="status-label">失败</span>}
+        {dur && <span className="muted mono small">{dur}</span>}
+        <span className="muted caret">{open ? '▾' : '▸'}</span>
       </div>
       {open && (
         <div className="tool-body">
-          <h5>input</h5>
-          <pre>{JSON.stringify(st.input, null, 2)}</pre>
-          {st.status === 'completed' && (
+          {diff ? (
+            <>
+              <h5>
+                <button className="term" onClick={() => openCard('diff', ctx)}>
+                  diff
+                </button>
+              </h5>
+              <DiffView diff={diff} />
+            </>
+          ) : (
+            <>
+              <h5>input</h5>
+              <pre>{JSON.stringify(st.input, null, 2)}</pre>
+            </>
+          )}
+          {st.status === 'completed' && !diff && (
             <>
               <h5>output</h5>
               <pre>{truncate(st.output, 4000)}</pre>
@@ -337,10 +554,41 @@ function ToolPart({ p, sessionTitle }: { p: Extract<OcPart, { type: 'tool' }>; s
               <pre className="error">{st.error}</pre>
             </>
           )}
+          <div className="tool-links">
+            {files.slice(0, 3).map((f) => (
+              <button key={f} className="link-btn" onClick={() => showInArch(f)} title="在架构图里选中这个文件所在的模块">
+                在架构图中定位 <span className="mono">{f.split('/').pop()}</span>
+              </button>
+            ))}
+            {commit?.hash && (
+              <button className="link-btn" onClick={() => showCommit(commit.hash!)}>
+                在 Git 图中查看提交 <span className="mono">{commit.hash.slice(0, 7)}</span>
+              </button>
+            )}
+            <button className="link-btn" onClick={() => void explain(`${p.tool} 工具在这一步做了什么`, ctx, cardId)} title="开一个只读的教学会话，结合这次调用讲解">
+              让 OpenCode 解释这一步 →
+            </button>
+          </div>
         </div>
       )}
     </div>
   );
+}
+
+/** File-changing tools get a diff: opencode's own unified diff when present, else one computed from the input. */
+function toolDiff(p: Extract<OcPart, { type: 'tool' }>): Diff | null {
+  const tool = p.tool.toLowerCase();
+  if (!['edit', 'write', 'multiedit', 'patch'].includes(tool)) return null;
+  const st = p.state;
+  const meta = st.status === 'completed' ? st.metadata : undefined;
+  if (typeof meta?.diff === 'string' && meta.diff.trim()) return parseUnified(meta.diff);
+  const input = st.input;
+  if (tool === 'edit' && typeof input.oldString === 'string' && typeof input.newString === 'string') {
+    if (!input.oldString && !input.newString) return null;
+    return { ...lineDiff(input.oldString, input.newString), fragment: true };
+  }
+  if (tool === 'write' && typeof input.content === 'string') return lineDiff('', input.content);
+  return null;
 }
 
 function summariseInput(tool: string, input: Record<string, unknown>): string {

@@ -1,7 +1,8 @@
 ---
 id: conflict
 title: 合并冲突（Merge Conflict）
-aliases: [merge conflict, 冲突, conflict, 解决冲突]
+aliases: [merge conflict, 解决冲突]
+keywords: [冲突, conflict]
 category: git
 level: 2
 summary: 两条历史改了同一处代码，Git 无法自动决定保留谁，把两个版本都留在文件里等你裁决。

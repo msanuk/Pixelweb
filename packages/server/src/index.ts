@@ -3,14 +3,16 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import Fastify from 'fastify';
-import cors from '@fastify/cors';
 import fastifyStatic from '@fastify/static';
 import websocket from '@fastify/websocket';
-import type { ClientMessage, ExplainRequest, ExplainResponse, ServerInfo, ServerMessage } from '@pixelweb/shared';
+import type { ClientMessage, CommitLink, ExplainRequest, ExplainResponse, ModelInfo, OcPart, PermissionResponse, ServerInfo, ServerMessage } from '@pixelweb/shared';
 import { loadConfig, printUsage } from './config.js';
 import { OpencodeClient, type GlobalEvent } from './opencode/client.js';
+import { toModelInfo } from './opencode/models.js';
 import { Hub } from './ws.js';
+import { registerAuth } from './auth.js';
 import { GitService } from './git/service.js';
+import { CommitIndex, resolveLinks } from './activity/commits.js';
 import { analyseProject } from './analysis/deps.js';
 import { KnowledgeStore } from './knowledge/store.js';
 import { LearningStore } from './knowledge/learning.js';
@@ -33,6 +35,7 @@ async function main(): Promise<void> {
   const hub = new Hub();
   const opencode = new OpencodeClient({
     baseUrl: cfg.opencodeUrl,
+    username: cfg.opencodeUsername,
     password: cfg.opencodePassword,
     directory: cfg.projectRoot,
     verbose: cfg.verbose,
@@ -48,7 +51,27 @@ async function main(): Promise<void> {
   let archCache: Awaited<ReturnType<typeof analyseProject>> | null = null;
   let archLevel: 'file' | 'dir' = 'dir';
 
+  const commitIndex = new CommitIndex();
+  let commitLinks: CommitLink[] = [];
+
   await Promise.all([knowledge.load(), learning.load()]);
+
+  /** Re-resolves agent commits against the current log; broadcasts only when something changed. */
+  const publishCommits = () => {
+    const next = resolveLinks(commitIndex.list(), gitSvc.current?.commits ?? []);
+    if (JSON.stringify(next) === JSON.stringify(commitLinks)) return;
+    commitLinks = next;
+    hub.broadcast({ type: 'activity.commits', links: commitLinks });
+  };
+  /** Commits made before PixelWeb started: scan the most recent sessions once OpenCode is reachable. */
+  const backfillCommits = async () => {
+    const sessions = (await opencode.listSessions()).sort((a, b) => b.time.updated - a.time.updated).slice(0, 40);
+    for (let i = 0; i < sessions.length; i += 4) {
+      const batch = await Promise.all(sessions.slice(i, i + 4).map((s) => opencode.messages(s.id).catch(() => [])));
+      for (const msgs of batch) commitIndex.addMessages(msgs);
+    }
+    publishCommits();
+  };
 
   const refreshArch = async (level = archLevel) => {
     archLevel = level;
@@ -58,14 +81,18 @@ async function main(): Promise<void> {
   };
 
   // ---- wiring ----------------------------------------------------------------
+  let wasConnected = false;
   opencode.on('status', (s: { connected: boolean; error?: string }) => {
     hub.broadcast({ type: 'opencode.status', ...s });
+    if (s.connected && !wasConnected) void backfillCommits().catch((e) => console.warn('[pixelweb] commit backfill:', e?.message ?? e));
+    wasConnected = s.connected;
     if (s.connected) console.log(`[pixelweb] connected to opencode at ${cfg.opencodeUrl}`);
     else if (s.error) console.log(`[pixelweb] opencode unreachable (${s.error}); retrying…`);
   });
   opencode.on('event', (ev: GlobalEvent) => {
     hub.broadcast({ type: 'opencode.event', event: ev.payload, directory: ev.directory, receivedAt: Date.now() });
     const t = ev.payload.type;
+    if (t === 'message.part.updated' && commitIndex.addPart((ev.payload.properties as { part: OcPart }).part)) publishCommits();
     if (t === 'file.edited' || t === 'file.watcher.updated' || t === 'session.idle' || t === 'vcs.branch.updated') {
       gitSvc.scheduleRefresh(400);
     }
@@ -75,12 +102,16 @@ async function main(): Promise<void> {
     }
   });
   let archTimer: NodeJS.Timeout | undefined;
-  gitSvc.on('snapshot', (snapshot) => hub.broadcast({ type: 'git.snapshot', snapshot }));
+  gitSvc.on('snapshot', (snapshot) => {
+    hub.broadcast({ type: 'git.snapshot', snapshot });
+    publishCommits(); // a new commit may pin a link that had no hash yet
+  });
   gitSvc.on('error', (e) => console.warn('[pixelweb] git:', e instanceof Error ? e.message : e));
 
   // ---- http -------------------------------------------------------------------
   const app = Fastify({ logger: false });
-  await app.register(cors, { origin: true });
+  // No CORS: the UI is same-origin (vite proxies in dev), and allowing other origins would let any website drive the agent.
+  registerAuth(app, cfg.password);
   await app.register(websocket);
 
   const publicDir = path.join(PKG_ROOT, 'public');
@@ -110,6 +141,7 @@ async function main(): Promise<void> {
     if (gitSvc.current) send({ type: 'git.snapshot', snapshot: gitSvc.current });
     if (archCache) send({ type: 'arch.graph', graph: archCache });
     send({ type: 'learning.state', state: learning.get() });
+    send({ type: 'activity.commits', links: commitLinks });
   });
 
   app.get('/api/info', async (): Promise<ServerInfo> => ({
@@ -136,6 +168,18 @@ async function main(): Promise<void> {
       return reply.code(502).send({ error: String(e instanceof Error ? e.message : e) });
     }
   });
+  // model token limits for the context meter; they rarely change, so cache briefly
+  let modelsCache: { at: number; info: ModelInfo } | null = null;
+  app.get('/api/models', async (_req, reply) => {
+    if (modelsCache && Date.now() - modelsCache.at < 5 * 60_000) return modelsCache.info;
+    try {
+      const [providers, config] = await Promise.all([opencode.providers(), opencode.config().catch(() => ({}))]);
+      modelsCache = { at: Date.now(), info: toModelInfo(providers, config) };
+      return modelsCache.info;
+    } catch (e) {
+      return reply.code(502).send({ error: String(e instanceof Error ? e.message : e) });
+    }
+  });
   app.post<{ Params: { id: string } }>('/api/sessions/:id/abort', async (req, reply) => {
     try {
       return await opencode.abortSession(req.params.id);
@@ -143,6 +187,27 @@ async function main(): Promise<void> {
       return reply.code(502).send({ error: String(e instanceof Error ? e.message : e) });
     }
   });
+  app.get('/api/permissions', async (_req, reply) => {
+    try {
+      return await opencode.listPermissions();
+    } catch (e) {
+      return reply.code(502).send({ error: String(e instanceof Error ? e.message : e) });
+    }
+  });
+  app.post<{ Params: { id: string; permissionID: string }; Body: { response: PermissionResponse } }>(
+    '/api/sessions/:id/permissions/:permissionID',
+    async (req, reply) => {
+      const response = req.body?.response;
+      if (response !== 'once' && response !== 'always' && response !== 'reject') {
+        return reply.code(400).send({ error: 'response must be once | always | reject' });
+      }
+      try {
+        return { ok: await opencode.replyPermission(req.params.id, req.params.permissionID, response) };
+      } catch (e) {
+        return reply.code(502).send({ error: String(e instanceof Error ? e.message : e) });
+      }
+    },
+  );
   app.post<{ Params: { id: string }; Body: { text: string } }>('/api/sessions/:id/prompt', async (req, reply) => {
     const text = req.body?.text?.trim();
     if (!text) return reply.code(400).send({ error: 'text required' });
@@ -159,6 +224,16 @@ async function main(): Promise<void> {
 
   // -- git / architecture
   app.get('/api/git', async () => gitSvc.current ?? (await gitSvc.refresh()));
+  app.get<{ Querystring: { path?: string } }>('/api/git/diff', async (req, reply) => {
+    if (!req.query.path) return reply.code(400).send({ error: 'path required' });
+    try {
+      const diff = await gitSvc.diff(req.query.path);
+      if (diff === null) return reply.code(404).send({ error: 'not a changed file' });
+      return { path: req.query.path, diff };
+    } catch (e) {
+      return reply.code(500).send({ error: String(e instanceof Error ? e.message : e) });
+    }
+  });
   app.get<{ Querystring: { level?: 'file' | 'dir'; refresh?: string } }>('/api/arch', async (req) => {
     const level = req.query.level ?? archLevel;
     if (archCache && level === archLevel && !req.query.refresh) return archCache;
@@ -197,9 +272,12 @@ async function main(): Promise<void> {
   app.post<{ Body: { cardId: string; mastery: 'seen' | 'learning' | 'mastered' } }>('/api/learning/mastery', async (req) =>
     broadcastLearning(await learning.setMastery(req.body.cardId, req.body.mastery)),
   );
-  app.post<{ Body: { cardId: string; notes: string } }>('/api/learning/notes', async (req) =>
-    broadcastLearning(await learning.setNotes(req.body.cardId, req.body.notes ?? '')),
-  );
+  app.post<{ Body: { cardId: string; notes: string } }>('/api/learning/notes', async (req, reply) => {
+    const { cardId, notes } = req.body ?? {};
+    if (typeof cardId !== 'string' || !cardId || typeof notes !== 'string') return reply.code(400).send({ error: 'cardId and notes required' });
+    if (notes.length > 20_000) return reply.code(413).send({ error: '笔记太长（上限 2 万字）' });
+    return broadcastLearning(await learning.setNotes(cardId, notes));
+  });
 
   // -- explain via a fresh opencode session
   app.post<{ Body: ExplainRequest }>('/api/explain', async (req, reply) => {
@@ -227,6 +305,14 @@ async function main(): Promise<void> {
   await app.listen({ port: cfg.port, host: cfg.host });
   console.log(`[pixelweb] v${VERSION} listening on http://${cfg.host}:${cfg.port}${hasUi ? '' : '  (UI not built; run `npm run dev:web` or `npm run build`)'}`);
   console.log(`[pixelweb] project: ${cfg.projectRoot}`);
+  const loopback = ['127.0.0.1', 'localhost', '::1'].includes(cfg.host);
+  if (cfg.password) console.log('[pixelweb] login required (--password)');
+  if (!loopback && !cfg.password) {
+    console.warn(`[pixelweb] WARNING: listening on ${cfg.host} without --password — anyone who can reach this port can prompt the agent and approve its shell commands.`);
+  }
+  if (!loopback && cfg.password) {
+    console.log('[pixelweb] note: plain HTTP sends the password and session cookie unencrypted; put PixelWeb behind HTTPS or an SSH tunnel on untrusted networks.');
+  }
   console.log(`[pixelweb] knowledge cards: ${knowledge.all().length}`);
 
   opencode.start();

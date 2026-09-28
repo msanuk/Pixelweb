@@ -7,8 +7,11 @@ export interface PixelwebConfig {
   host: string;
   /** Base URL of `opencode serve`. */
   opencodeUrl: string;
-  /** Optional basic-auth password (OPENCODE_SERVER_PASSWORD on the opencode side). */
+  /** Optional basic-auth credentials (OPENCODE_SERVER_USERNAME / _PASSWORD on the opencode side). */
+  opencodeUsername: string;
   opencodePassword?: string;
+  /** Password for the PixelWeb UI itself; unset = no login (only safe on 127.0.0.1). */
+  password?: string;
   /** Project directory to visualise. Defaults to cwd; may be overridden by opencode's /path. */
   projectRoot: string;
   /** Where learning records are persisted. */
@@ -30,7 +33,9 @@ export function loadConfig(argv = process.argv.slice(2), env = process.env): Pix
     port: Number(flag(argv, 'port') ?? env.PIXELWEB_PORT ?? 7420),
     host: flag(argv, 'host') ?? env.PIXELWEB_HOST ?? '127.0.0.1',
     opencodeUrl: (flag(argv, 'opencode') ?? env.PIXELWEB_OPENCODE_URL ?? 'http://127.0.0.1:4096').replace(/\/$/, ''),
+    opencodeUsername: flag(argv, 'opencode-username') ?? env.OPENCODE_SERVER_USERNAME ?? 'opencode',
     opencodePassword: flag(argv, 'opencode-password') ?? env.OPENCODE_SERVER_PASSWORD,
+    password: flag(argv, 'password') ?? env.PIXELWEB_PASSWORD,
     projectRoot,
     dataDir: flag(argv, 'data-dir') ?? env.PIXELWEB_DATA_DIR ?? path.join(os.homedir(), '.pixelweb'),
     verbose: argv.includes('--verbose') || env.PIXELWEB_VERBOSE === '1',
@@ -43,10 +48,12 @@ export function printUsage(): void {
 Usage: pixelweb [options]
 
   --opencode <url>          opencode serve base URL   (default http://127.0.0.1:4096)
+  --opencode-username <u>   basic-auth username for opencode (default opencode)
   --opencode-password <pw>  basic-auth password if opencode is protected
+  --password <pw>           require this password to use PixelWeb (env PIXELWEB_PASSWORD)
   --project <dir>           project directory to visualise (default: cwd)
   --port <n>                PixelWeb port (default 7420)
-  --host <addr>             PixelWeb bind address (default 127.0.0.1)
+  --host <addr>             PixelWeb bind address (default 127.0.0.1; set --password before exposing it)
   --data-dir <dir>          learning records location (default ~/.pixelweb)
   --verbose                 log every opencode event
 `);

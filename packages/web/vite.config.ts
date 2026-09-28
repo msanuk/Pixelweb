@@ -11,9 +11,10 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    // keep the browser's Host header: the server checks it against Origin to refuse cross-site requests
     proxy: {
-      '/api': 'http://127.0.0.1:7420',
-      '/ws': { target: 'ws://127.0.0.1:7420', ws: true },
+      '/api': { target: 'http://127.0.0.1:7420', changeOrigin: false },
+      '/ws': { target: 'ws://127.0.0.1:7420', ws: true, changeOrigin: false },
     },
   },
 });

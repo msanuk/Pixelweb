@@ -1,7 +1,8 @@
 ---
 id: permission
 title: 权限确认（Permission）
-aliases: [permission, 权限, 授权, 审批]
+aliases: [审批]
+keywords: [权限, 授权, permission]
 category: ai
 level: 1
 summary: agent 执行高风险工具前暂停等待你批准的机制，是「人在回路」的最后闸门。

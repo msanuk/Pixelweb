@@ -1,5 +1,15 @@
 import { EventEmitter } from 'node:events';
-import type { OcEvent, OcMessageWithParts, OcSession } from '@pixelweb/shared';
+import type { OcEvent, OcMessageWithParts, OcModelLimit, OcSession, PermissionResponse } from '@pixelweb/shared';
+
+/** A non-2xx answer from OpenCode; `status` lets callers fall back between API versions. */
+export class OpencodeHttpError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+  }
+}
 
 /**
  * Minimal, dependency-free client for `opencode serve`.
@@ -10,6 +20,7 @@ import type { OcEvent, OcMessageWithParts, OcSession } from '@pixelweb/shared';
  */
 export interface OpencodeClientOptions {
   baseUrl: string;
+  username?: string;
   password?: string;
   /** Sent as `?directory=` so opencode scopes the call to this project. */
   directory?: string;
@@ -46,7 +57,7 @@ export class OpencodeClient extends EventEmitter {
   private headers(extra: Record<string, string> = {}): Record<string, string> {
     const h: Record<string, string> = { accept: 'application/json', ...extra };
     if (this.opts.password) {
-      h.authorization = 'Basic ' + Buffer.from(`opencode:${this.opts.password}`).toString('base64');
+      h.authorization = 'Basic ' + Buffer.from(`${this.opts.username ?? 'opencode'}:${this.opts.password}`).toString('base64');
     }
     return h;
   }
@@ -65,7 +76,7 @@ export class OpencodeClient extends EventEmitter {
     });
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      throw new Error(`opencode ${init.method ?? 'GET'} ${p} -> ${res.status} ${text.slice(0, 200)}`);
+      throw new OpencodeHttpError(`opencode ${init.method ?? 'GET'} ${p} -> ${res.status} ${text.slice(0, 200)}`, res.status);
     }
     const ct = res.headers.get('content-type') ?? '';
     return (ct.includes('json') ? await res.json() : (await res.text())) as T;
@@ -79,6 +90,15 @@ export class OpencodeClient extends EventEmitter {
 
   path(): Promise<{ worktree: string; directory: string }> {
     return this.json('path');
+  }
+
+  /** Configured providers and their models (with token limits). */
+  providers(): Promise<{ providers: { id: string; models: Record<string, { id?: string; limit?: OcModelLimit }> }[] }> {
+    return this.json('config/providers');
+  }
+
+  config(): Promise<{ compaction?: { auto?: boolean; reserved?: number } }> {
+    return this.json('config');
   }
 
   listSessions(): Promise<OcSession[]> {
@@ -103,6 +123,30 @@ export class OpencodeClient extends EventEmitter {
       method: 'POST',
       body: JSON.stringify(input),
     });
+  }
+
+  /** Answer a pending permission request; opencode confirms with a `permission.replied` event. */
+  /** Pending permission requests (OpenCode ≥ 1.x `GET /permission`); empty on versions without it. */
+  async listPermissions(): Promise<unknown[]> {
+    try {
+      return await this.json<unknown[]>('permission');
+    } catch (e) {
+      if (e instanceof OpencodeHttpError && e.status === 404) return [];
+      throw e;
+    }
+  }
+
+  /** Answers a permission request: the current endpoint, falling back to the deprecated per-session one on older servers. */
+  async replyPermission(id: string, permissionID: string, response: PermissionResponse): Promise<boolean> {
+    try {
+      return await this.json(`permission/${encodeURIComponent(permissionID)}/reply`, { method: 'POST', body: JSON.stringify({ reply: response }) });
+    } catch (e) {
+      if (!(e instanceof OpencodeHttpError && e.status === 404)) throw e;
+      return this.json(`session/${encodeURIComponent(id)}/permissions/${encodeURIComponent(permissionID)}`, {
+        method: 'POST',
+        body: JSON.stringify({ response }),
+      });
+    }
   }
 
   abortSession(id: string): Promise<unknown> {

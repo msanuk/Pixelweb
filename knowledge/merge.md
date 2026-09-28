@@ -1,7 +1,8 @@
 ---
 id: merge
 title: Merge
-aliases: [合并, git merge, merge commit]
+aliases: [git merge, merge commit]
+keywords: [合并]
 category: git
 level: 1
 summary: 把两条历史汇合，生成一个有两个父提交的新 commit；历史保留原样。
