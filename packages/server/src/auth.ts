@@ -127,17 +127,19 @@ export function registerAuth(app: FastifyInstance, password: string | undefined)
   const tokenOf = (req: FastifyRequest) => parseCookies(req.headers.cookie)[COOKIE];
 
   app.addHook('onRequest', async (req: FastifyRequest, reply: FastifyReply) => {
-    const url = req.raw.url ?? '/';
-    const isWs = url === '/ws' || url.startsWith('/ws?');
-    const isApi = url.startsWith('/api/') || url === '/api';
+    // Judge the route the router matched, not just the raw URL: the router decodes %xx,
+    // so "/%61pi/sessions" reaches the /api routes without starting with "/api".
+    const route = req.routeOptions.url;
+    const raw = (req.raw.url ?? '/').split('?')[0];
+    const isWs = route === '/ws' || raw === '/ws';
+    const isApi = [route ?? '', raw].some((p) => p === '/api' || p.startsWith('/api/'));
     if (!isWs && !isApi) return; // static UI
 
     if ((isWs || req.method !== 'GET') && !sameOrigin(req)) {
       return reply.code(403).send({ error: 'cross-origin request refused' });
     }
     if (!store) return;
-    const path = url.split('?')[0];
-    if (PUBLIC_API.has(path)) return;
+    if (PUBLIC_API.has(route ?? raw)) return;
     if (!store.isValid(tokenOf(req))) return reply.code(401).send({ error: 'login required' });
   });
 

@@ -56,6 +56,15 @@ describe('password login', () => {
     expect((await app.inject({ method: 'GET', url: '/api/auth' })).json()).toEqual({ required: true, authenticated: false });
   });
 
+  it('guards the route the request reaches, however its path is spelled', async () => {
+    app = await makeApp('s3cret');
+    for (const url of ['/%61pi/secret', '/api/%73ecret', '/%61pi/secret?x=1', '/w%73']) {
+      expect((await app.inject({ method: 'GET', url })).statusCode, url).toBe(401);
+    }
+    const evil = { host: HOST, origin: 'https://evil.example' };
+    expect((await app.inject({ method: 'POST', url: '/%61pi/act', headers: evil })).statusCode).toBe(403);
+  });
+
   it('issues an HttpOnly SameSite cookie on the right password and accepts it', async () => {
     app = await makeApp('s3cret');
     expect((await login('wrong')).statusCode).toBe(401);
