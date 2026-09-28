@@ -125,7 +125,7 @@ npm test               # vitest：git 解析、依赖分析、知识卡片（每
 
 ```
 packages/
-  shared/    前后端共享的 TypeScript 类型（OpenCode 事件、Git 快照、依赖图、卡片、WS 协议）
+  shared/    前后端共享的 TypeScript 类型（OpenCode 事件、Git 快照、依赖图、卡片、WS 协议），外加两边共用的 token 统计（steps.js）
   server/    Fastify
     opencode/client.ts   ← 唯一与 OpenCode 打交道的适配器：REST + /global/event SSE（自动重连）
     git/service.ts       ← git log/for-each-ref/status 解析 + chokidar 监听 .git

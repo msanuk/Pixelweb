@@ -14,7 +14,7 @@ import { contextUsage } from '../lib/context';
 import { analyzeCache, breakReasons, type SessionCache, type StepCache } from '../lib/cache';
 import { cardForTool } from '../lib/tools';
 import { summarizeSession } from '../lib/summary';
-import { sessionTokens } from '../lib/tokens';
+import { sessionTotals } from '@pixelweb/shared/steps';
 import { buildMatcher } from '../lib/terms';
 
 
@@ -50,7 +50,7 @@ export function Timeline() {
   const totals = useMemo(() => {
     let tools = 0;
     for (const m of messages ?? []) tools += m.parts.filter((p) => p.type === 'tool').length;
-    return { ...sessionTokens(messages ?? []), tools };
+    return { ...sessionTotals(messages ?? []), tools };
   }, [messages]);
   const cache = useMemo(() => analyzeCache(messages ?? []), [messages]);
 

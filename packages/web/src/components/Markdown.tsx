@@ -1,10 +1,13 @@
 import React from 'react';
 import { Highlight } from './Highlight';
+import { parseBlocks } from '../lib/markdown';
+import { MermaidBlock } from './Mermaid';
 
 /**
- * Deliberately tiny markdown renderer: headings, paragraphs, lists, inline
- * code, bold, links, fenced code. Text nodes pass through <Highlight/> so
- * knowledge terms are clickable inside agent replies and card bodies.
+ * Deliberately tiny markdown renderer: headings, paragraphs, lists, tables,
+ * inline code, bold, links, fenced code, ```mermaid diagrams. Text nodes pass
+ * through <Highlight/> so knowledge terms are clickable inside agent replies
+ * and card bodies.
  */
 export function Markdown({ text, highlight = true }: { text: string; highlight?: boolean }) {
   const blocks = parseBlocks(text);
@@ -13,6 +16,7 @@ export function Markdown({ text, highlight = true }: { text: string; highlight?:
       {blocks.map((b, i) => {
         switch (b.kind) {
           case 'code':
+            if (b.lang === 'mermaid' && b.closed) return <MermaidBlock key={i} code={b.text} />;
             return (
               <pre key={i} className="md-code">
                 <code>{b.text}</code>
@@ -36,62 +40,39 @@ export function Markdown({ text, highlight = true }: { text: string; highlight?:
                 ))}
               </ol>
             );
+          case 'table':
+            return (
+              <div key={i} className="md-table">
+                <table>
+                  <thead>
+                    <tr>
+                      {b.head.map((c, j) => (
+                        <th key={j} style={{ textAlign: b.align[j] ?? undefined }}>
+                          {inline(c, highlight)}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {b.rows.map((r, k) => (
+                      <tr key={k}>
+                        {r.map((c, j) => (
+                          <td key={j} style={{ textAlign: b.align[j] ?? undefined }}>
+                            {inline(c, highlight)}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            );
           default:
             return <p key={i}>{inline(b.text, highlight)}</p>;
         }
       })}
     </div>
   );
-}
-
-type Block =
-  | { kind: 'p'; text: string }
-  | { kind: 'h'; level: number; text: string }
-  | { kind: 'code'; text: string }
-  | { kind: 'ul'; items: string[] }
-  | { kind: 'ol'; items: string[] };
-
-function parseBlocks(text: string): Block[] {
-  const lines = text.replace(/\r\n/g, '\n').split('\n');
-  const out: Block[] = [];
-  let i = 0;
-  while (i < lines.length) {
-    const line = lines[i];
-    if (line.startsWith('```')) {
-      const buf: string[] = [];
-      i++;
-      while (i < lines.length && !lines[i].startsWith('```')) buf.push(lines[i++]);
-      i++;
-      out.push({ kind: 'code', text: buf.join('\n') });
-      continue;
-    }
-    const h = /^(#{1,6})\s+(.*)$/.exec(line);
-    if (h) {
-      out.push({ kind: 'h', level: h[1].length, text: h[2] });
-      i++;
-      continue;
-    }
-    if (/^\s*[-*]\s+/.test(line)) {
-      const items: string[] = [];
-      while (i < lines.length && /^\s*[-*]\s+/.test(lines[i])) items.push(lines[i++].replace(/^\s*[-*]\s+/, ''));
-      out.push({ kind: 'ul', items });
-      continue;
-    }
-    if (/^\s*\d+[.)]\s+/.test(line)) {
-      const items: string[] = [];
-      while (i < lines.length && /^\s*\d+[.)]\s+/.test(lines[i])) items.push(lines[i++].replace(/^\s*\d+[.)]\s+/, ''));
-      out.push({ kind: 'ol', items });
-      continue;
-    }
-    if (!line.trim()) {
-      i++;
-      continue;
-    }
-    const buf: string[] = [];
-    while (i < lines.length && lines[i].trim() && !/^(#{1,6}\s|```|\s*[-*]\s+|\s*\d+[.)]\s+)/.test(lines[i])) buf.push(lines[i++]);
-    out.push({ kind: 'p', text: buf.join(' ') });
-  }
-  return out;
 }
 
 const INLINE_RE = /(`[^`]+`|\*\*[^*]+\*\*|\[[^\]]+\]\([^)]+\))/g;
