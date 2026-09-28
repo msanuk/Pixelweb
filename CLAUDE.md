@@ -18,6 +18,7 @@ npm run build        # server: tsc → packages/server/dist; web: vite build →
 npm run typecheck
 npm test             # vitest, server and web packages
 node packages/server/dist/index.js --project <dir>   # run built app (see --help for flags)
+npm run pm2:start    # build, then keep `opencode serve` + the built server running under pm2 (ecosystem.config.cjs, settings from env or .env); pm2:logs, pm2:stop
 ```
 
 Single test file / single test (tests live in `packages/server/test/` and, for pure `web/src/lib` helpers, `packages/web/test/`):
