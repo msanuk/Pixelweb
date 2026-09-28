@@ -1,5 +1,7 @@
+import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { promisify } from 'node:util';
 import type { ArchEdge, ArchGraph, ArchNode } from '@pixelweb/shared';
 
 /**
@@ -112,7 +114,29 @@ export function externalName(spec: string, lang: ArchNode['language']): string {
 
 // ---- Walking -----------------------------------------------------------------
 
+const execFileP = promisify(execFile);
+
+/**
+ * What git ignores under `root` (build output, caches…), as root-relative
+ * paths; a wholly ignored directory is one entry ending in "/". Empty when
+ * `root` isn't in a git work tree. Catches generated files the size check in
+ * `isGenerated` can't: a bundler's small split chunks look like short source.
+ */
+export async function gitIgnored(root: string): Promise<Set<string>> {
+  try {
+    const { stdout } = await execFileP('git', ['ls-files', '--others', '--ignored', '--exclude-standard', '--directory', '-z'], {
+      cwd: root,
+      maxBuffer: 16 * 1024 * 1024,
+      timeout: 10_000,
+    });
+    return new Set(stdout.split('\0').filter(Boolean));
+  } catch {
+    return new Set();
+  }
+}
+
 async function walk(root: string, maxFiles: number): Promise<{ files: string[]; skipped: number }> {
+  const ignored = await gitIgnored(root);
   const files: string[] = [];
   let skipped = 0;
   const stack = [''];
@@ -128,12 +152,12 @@ async function walk(root: string, maxFiles: number): Promise<{ files: string[]; 
       if (e.isSymbolicLink()) continue;
       const relPath = rel ? path.posix.join(rel, e.name) : e.name;
       if (e.isDirectory()) {
-        if (IGNORED_DIRS.has(e.name) || e.name.startsWith('.')) continue;
+        if (IGNORED_DIRS.has(e.name) || e.name.startsWith('.') || ignored.has(relPath + '/')) continue;
         stack.push(relPath);
       } else if (e.isFile()) {
         const ext = path.extname(e.name);
         if (!TS_EXT.includes(ext) && !PY_EXT.includes(ext)) continue;
-        if (/\.d\.ts$/.test(e.name)) continue;
+        if (/\.d\.ts$/.test(e.name) || ignored.has(relPath)) continue;
         if (files.length >= maxFiles) {
           skipped++;
           continue;
