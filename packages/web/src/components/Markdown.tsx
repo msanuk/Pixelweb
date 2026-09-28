@@ -1,11 +1,13 @@
 import React from 'react';
 import { Highlight } from './Highlight';
 import { parseBlocks } from '../lib/markdown';
+import { MermaidBlock } from './Mermaid';
 
 /**
  * Deliberately tiny markdown renderer: headings, paragraphs, lists, tables,
- * inline code, bold, links, fenced code. Text nodes pass through <Highlight/> so
- * knowledge terms are clickable inside agent replies and card bodies.
+ * inline code, bold, links, fenced code, ```mermaid diagrams. Text nodes pass
+ * through <Highlight/> so knowledge terms are clickable inside agent replies
+ * and card bodies.
  */
 export function Markdown({ text, highlight = true }: { text: string; highlight?: boolean }) {
   const blocks = parseBlocks(text);
@@ -14,6 +16,7 @@ export function Markdown({ text, highlight = true }: { text: string; highlight?:
       {blocks.map((b, i) => {
         switch (b.kind) {
           case 'code':
+            if (b.lang === 'mermaid' && b.closed) return <MermaidBlock key={i} code={b.text} />;
             return (
               <pre key={i} className="md-code">
                 <code>{b.text}</code>

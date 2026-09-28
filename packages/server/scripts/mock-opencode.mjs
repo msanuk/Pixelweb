@@ -119,7 +119,7 @@ try {
         tool('p33', 'read', { filePath: f('packages/web/src/panels/ArchGraph.tsx') }, '…', t - 45000),
         tool('p34', 'edit', { filePath: f('packages/web/src/lib/api.ts'), oldString: 'a', newString: 'b' }, 'ok', t - 40000),
         tool('p35', 'bash', { command: `git add -A && git commit -m "${subject.replace(/"/g, "'")}"` }, `[main ${short}] ${subject}\n 3 files changed`, t - 500, t + 500),
-        { id: 'p36', sessionID: 'ses_3', messageID: 'm32', type: 'text', text: `已提交 ${short}。改动如下：\n\n| 文件 | 改动 | 行数 |\n|:---|:---|---:|\n| \`src/auth.ts\` | token 过期时跳到 **登录页** | +12 |\n| \`src/router.ts\` | 守卫改用 \`isExpired() \\|\\| !user\` | +3 −1 |\n| \`test/auth.test.ts\` | 补一个过期用例 | +20 |\n\n测试全部通过。` },
+        { id: 'p36', sessionID: 'ses_3', messageID: 'm32', type: 'text', text: `已提交 ${short}。改动如下：\n\n| 文件 | 改动 | 行数 |\n|:---|:---|---:|\n| \`src/auth.ts\` | token 过期时跳到 **登录页** | +12 |\n| \`src/router.ts\` | 守卫改用 \`isExpired() \\|\\| !user\` | +3 −1 |\n| \`test/auth.test.ts\` | 补一个过期用例 | +20 |\n\n调用关系：\n\n\`\`\`mermaid\ngraph LR\n  router[src/router.ts] --> auth[src/auth.ts]\n  auth --> store[(token 存储)]\n  test[test/auth.test.ts] -.-> auth\n\`\`\`\n\n测试全部通过。` },
       ] },
   ];
 } catch { /* not a git checkout: skip the sample */ }
@@ -127,6 +127,8 @@ const clients = new Set();
 const emit = (payload) => { const data = `data: ${JSON.stringify({ directory: dir, payload })}\n\n`; for (const c of clients) c.write(data); };
 const json = (res, code, body) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(body)); };
 let counter = 10;
+// streamed after a prompt that mentions 图, to watch a ```mermaid fence arrive half-written
+const DIAGRAM = '\n\n请求的路径：\n\n```mermaid\nsequenceDiagram\n  participant B as 浏览器\n  participant S as PixelWeb\n  participant O as opencode serve\n  B->>S: POST /api/sessions/:id/prompt\n  S->>O: POST /session/:id/prompt_async\n  O-->>S: SSE message.part.updated\n  S-->>B: WebSocket opencode.event\n```\n\n就是这样。';
 const pendingPermissions = new Map(); // requestID -> { request, resume(reply) }
 
 // A session that loads a skill, then runs the same failing command three times, so opencode
@@ -255,7 +257,7 @@ http.createServer((req, res) => {
           const request = { id: requestID, sessionID: id, permission: 'bash', patterns: ['npm test'], metadata: {}, always: ['npm *'], tool: { messageID: am.id, callID: 'call_' + requestID } };
           pendingPermissions.set(requestID, {
             request,
-            resume: (reply) => stream(reply === 'reject' ? `好的，不运行 \`npm test\`。收到：${text}` : `已运行 \`npm test\`（${reply === 'always' ? '已记住，以后不再询问' : '仅这一次'}）。收到：${text}`),
+            resume: (reply) => stream((reply === 'reject' ? `好的，不运行 \`npm test\`。收到：${text}` : `已运行 \`npm test\`（${reply === 'always' ? '已记住，以后不再询问' : '仅这一次'}）。收到：${text}`) + (text.includes('图') ? DIAGRAM : '')),
           });
           setTimeout(() => emit({ type: 'permission.asked', properties: request }), 400);
         }

@@ -5,7 +5,8 @@ export type Align = 'left' | 'center' | 'right' | null;
 export type Block =
   | { kind: 'p'; text: string }
   | { kind: 'h'; level: number; text: string }
-  | { kind: 'code'; text: string }
+  /** `lang` is the fence's info word (```ts → "ts"); `closed` is false while a streaming reply hasn't closed the fence yet */
+  | { kind: 'code'; text: string; lang: string; closed: boolean }
   | { kind: 'ul'; items: string[] }
   | { kind: 'ol'; items: string[] }
   | { kind: 'table'; align: Align[]; head: string[]; rows: string[][] };
@@ -66,11 +67,13 @@ export function parseBlocks(text: string): Block[] {
   while (i < lines.length) {
     const line = lines[i];
     if (line.startsWith('```')) {
+      const lang = line.slice(3).trim().split(/\s+/)[0].toLowerCase();
       const buf: string[] = [];
       i++;
       while (i < lines.length && !lines[i].startsWith('```')) buf.push(lines[i++]);
+      const closed = i < lines.length;
       i++;
-      out.push({ kind: 'code', text: buf.join('\n') });
+      out.push({ kind: 'code', text: buf.join('\n'), lang, closed });
       continue;
     }
     const h = /^(#{1,6})\s+(.*)$/.exec(line);

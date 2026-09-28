@@ -43,3 +43,16 @@ describe('parseBlocks tables', () => {
     expect(parseBlocks('---')[0]).toEqual({ kind: 'p', text: '---' });
   });
 });
+
+describe('parseBlocks code fences', () => {
+  it('keeps the language and whether the fence was closed', () => {
+    expect(parseBlocks('```Mermaid title\ngraph TD\n  A-->B\n```\n后文')).toEqual([
+      { kind: 'code', text: 'graph TD\n  A-->B', lang: 'mermaid', closed: true },
+      { kind: 'p', text: '后文' },
+    ]);
+    expect(parseBlocks('```\nplain\n```')[0]).toMatchObject({ lang: '', closed: true });
+  });
+  it('marks a fence a streaming reply has not closed yet', () => {
+    expect(parseBlocks('```mermaid\ngraph TD\n  A-->')).toEqual([{ kind: 'code', text: 'graph TD\n  A-->', lang: 'mermaid', closed: false }]);
+  });
+});
