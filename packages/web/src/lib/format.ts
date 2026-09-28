@@ -37,6 +37,11 @@ export function isTeachingTitle(title: string): boolean {
   return TEACH_PREFIX.test(title);
 }
 
+/** OpenCode's placeholder until its title agent has named the session. */
+const UNTITLED = /^(New|Child) session - (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z)$/;
+
 export function displayTitle(title: string): string {
+  const u = UNTITLED.exec(title);
+  if (u) return `${u[1] === 'New' ? '新会话' : '子会话'} · ${fmtDate(Date.parse(u[2]))}`;
   return title.replace(TEACH_PREFIX, '');
 }

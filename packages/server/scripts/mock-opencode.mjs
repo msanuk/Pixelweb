@@ -14,6 +14,7 @@ const sessions = [
   { id: 'ses_1', projectID: 'p', directory: dir, title: '修复登录页 bug', version: '1', time: { created: now() - 60000, updated: now() - 1000 }, summary: { additions: 12, deletions: 3, files: 2 } },
   // subtasks started by ses_1's task calls, titled the way opencode titles them
   { id: 'ses_2', projectID: 'p', directory: dir, parentID: 'ses_1', title: '搜索处理 token 过期的代码 (@explore subagent)', version: '1', time: { created: now() - 58500, updated: now() - 57200 } },
+  { id: 'ses_new', projectID: 'p', directory: dir, title: `New session - ${new Date(now() - 30000).toISOString()}`, version: '1', time: { created: now() - 30000, updated: now() - 30000 } },
   { id: 'ses_2b', projectID: 'p', directory: dir, parentID: 'ses_1', title: '检查路由守卫的调用方 (@general subagent)', version: '1', time: { created: now() - 57000, updated: now() - 56200 } },
 ];
 const messages = {
@@ -36,6 +37,7 @@ const messages = {
   ],
   ses_2: [],
   ses_2b: [],
+  ses_new: [],
 };
 
 // Two weeks of older sessions on a few models, for the 用量 page. opencodego reports no cache use, like an
@@ -170,9 +172,24 @@ http.createServer((req, res) => {
   if (p === '/config') return json(res, 200, { compaction: { auto: true } });
   if (p === '/project') return json(res, 200, [dir, ...extraProjects].map((w, i) => ({ id: 'prj_' + i, worktree: w, vcs: 'git', time: { created: now() - 86400000, updated: now() - i * 3600000 } })));
   if (p === '/session' && req.method === 'GET') return json(res, 200, inDir(u.searchParams.get('directory')) ? sessions : []);
+  const one = /^\/session\/([^/]+)$/.exec(p);
+  if (one) {
+    const s = sessions.find((x) => x.id === one[1]);
+    if (!s) return json(res, 404, { error: 'no such session' });
+    if (req.method === 'GET') return json(res, 200, s);
+    if (req.method === 'PATCH') {
+      readBody(req).then((b) => {
+        if (typeof b.title === 'string') s.title = b.title;
+        s.time.updated = now();
+        emit({ type: 'session.updated', properties: { sessionID: s.id, info: s } });
+        json(res, 200, s);
+      });
+      return;
+    }
+  }
   if (p === '/session' && req.method === 'POST') {
     let body = ''; req.on('data', (c) => (body += c)); req.on('end', () => {
-      const b = JSON.parse(body || '{}'); const s = { id: 'ses_' + counter++, projectID: 'p', directory: dir, title: b.title ?? 'new', version: '1', time: { created: now(), updated: now() } };
+      const b = JSON.parse(body || '{}'); const s = { id: 'ses_' + counter++, projectID: 'p', directory: dir, title: b.title ?? `New session - ${new Date().toISOString()}`, version: '1', time: { created: now(), updated: now() } };
       sessions.unshift(s); messages[s.id] = []; emit({ type: 'session.created', properties: { info: s } }); json(res, 200, s); }); return;
   }
   // permissions, OpenCode 1.x style: GET /permission, POST /permission/:id/reply { reply }; plus the deprecated per-session route
@@ -204,6 +221,15 @@ http.createServer((req, res) => {
         const um = { id: 'm' + counter++, sessionID: id, role: 'user', time: { created: now() }, agent: b.agent ?? 'build', model: { ...(b.model ?? lastModel ?? { providerID: 'anthropic', modelID: 'claude-sonnet-4' }), ...(b.variant ? { variant: b.variant } : {}) }, ...(b.system ? { system: b.system } : {}), ...(b.tools ? { tools: b.tools } : {}) };
         console.log('[mock] prompt', id, JSON.stringify({ agent: b.agent, model: b.model, variant: b.variant, system: !!b.system, tools: b.tools }));
         messages[id].push({ info: um, parts: [{ id: 'p' + counter++, sessionID: id, messageID: um.id, type: 'text', text }] });
+        // like opencode's title agent: the first prompt names a still-untitled session (Chinese, 动词对象)
+        const ses = sessions.find((x) => x.id === id);
+        if (ses && /^New session - /.test(ses.title)) {
+          setTimeout(() => {
+            ses.title = '“' + (text.replace(/^请/, '').slice(0, 12) || '闲聊') + '”';
+            ses.time.updated = now();
+            emit({ type: 'session.updated', properties: { sessionID: id, info: ses } });
+          }, 600);
+        }
         emit({ type: 'message.updated', properties: { info: um } });
         emit({ type: 'message.part.updated', properties: { part: messages[id].at(-1).parts[0] } });
         emit({ type: 'session.status', properties: { sessionID: id, status: { type: 'busy' } } });

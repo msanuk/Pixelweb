@@ -230,6 +230,11 @@ h2, h3, h4, h5 { margin: 0.4em 0; }
 .timeline-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 16px; border-bottom: 1px solid var(--border); background: var(--panel); }
 .parent-crumb { display: flex; align-items: center; gap: 6px; font-size: 12px; margin-bottom: 2px; min-width: 0; }
 .parent-crumb .link-btn { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 40ch; }
+.session-title { display: inline-flex; align-items: center; gap: 4px; }
+.session-title .icon-btn { opacity: 0; padding: 2px; }
+.session-title:hover .icon-btn, .session-title .icon-btn:focus-visible { opacity: 1; }
+.title-edit { display: inline-flex; align-items: center; gap: 8px; font-weight: normal; white-space: nowrap; }
+.title-edit input { font-size: 14px; padding: 2px 6px; width: 22em; }
 .timeline-head h3 { margin: 0 0 2px; font-size: 15px; }
 .timeline-head .meta { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 /* context meter: ink fill, a tick where OpenCode compacts, amber once close to it */

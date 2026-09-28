@@ -52,6 +52,8 @@ export const api = {
     req<UsageReport>(`/api/usage?from=${from}&to=${to}&tz=${new Date().getTimezoneOffset()}`),
   permissions: () => req<Record<string, unknown>[]>('/api/permissions'),
   sessions: () => req<OcSession[]>('/api/sessions'),
+  renameSession: (id: string, title: string) =>
+    req<OcSession>(`/api/sessions/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ title }) }),
   messages: (id: string) => req<OcMessageWithParts[]>(`/api/sessions/${encodeURIComponent(id)}/messages`),
   abort: (id: string) => req(`/api/sessions/${encodeURIComponent(id)}/abort`, { method: 'POST' }),
   prompt: (id: string, text: string) =>
