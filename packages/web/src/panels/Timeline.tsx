@@ -377,7 +377,7 @@ function PermissionRequests({ permissions }: { permissions: OcPermission[] }) {
         return (
           <div key={p.id} className="perm">
             <span className="perm-what">
-              <button className="term strong" onClick={() => openCard('permission', `${p.type}: ${what}`)}>
+              <button className="term strong" onClick={() => openCard(p.type === 'doom_loop' ? 'doom-loop' : 'permission', `${p.type}: ${what}`)}>
                 需要权限
               </button>
               <span className="chip">{p.type}</span>

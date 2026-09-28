@@ -6,7 +6,7 @@ keywords: [read, edit, write]
 category: ai
 level: 1
 summary: agent 的「眼」和「手」：read 把文件内容放进上下文，edit 做精确字符串替换，write 整文件覆盖。
-related: [tool-call, diff, token]
+related: [tool-call, diff, token, context-rot]
 appearsIn: [timeline.tool.read, timeline.tool.edit, timeline.tool.write]
 quiz:
   - q: 为什么 agent 通常先 read 再 edit？
@@ -14,9 +14,10 @@ quiz:
     answer: 1
 sources:
   - { title: "OpenCode tools", url: https://opencode.ai/docs/tools }
+  - { title: "李博杰《深入理解 AI Agent》第 5 章", url: https://github.com/bojieli/ai-agent-book }
 ---
 ## 为什么重要
-read 越多，上下文越贵；edit 失败几乎都是「旧文本不匹配」。看懂这三种调用，就能读懂 agent 90% 的工作。
+read 越多，上下文越贵；edit 失败几乎都是「旧文本不匹配」。edit 用的是「旧字符串 → 新字符串」：旧文本在文件里恰好出现一次才替换，差一个字符就失败，出现多次也失败。好处是不会改错地方，所以 agent 改之前总要先 read 一遍。看懂这三种调用，就能读懂 agent 90% 的工作。
 
 ## 在 PixelWeb 里出现在哪
 时间线卡片；对应的文件路径会与 git 面板的改动列表联动。

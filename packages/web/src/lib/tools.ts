@@ -13,6 +13,7 @@ const TOOL_CARD: Record<string, string> = {
   task: 'tool-task',
   todowrite: 'tool-todo',
   todoread: 'tool-todo',
+  skill: 'agent-skills',
 };
 
 /** The card for a tool call; MCP tools are namespaced ("server_tool"), anything else unknown gets the generic one. */

@@ -6,7 +6,7 @@ keywords: [fetch]
 category: ai
 level: 1
 summary: 让 agent 抓取一个 URL 的内容读进上下文，常用于查文档。
-related: [tool-call, http, rest-api]
+related: [tool-call, http, rest-api, prompt-injection, lethal-trifecta]
 appearsIn: [timeline.tool.webfetch]
 quiz:
   - q: webfetch 抓回的内容会去哪？
@@ -14,9 +14,10 @@ quiz:
     answer: 1
 sources:
   - { title: "OpenCode tools", url: https://opencode.ai/docs/tools }
+  - { title: "李博杰《深入理解 AI Agent》第 2 章", url: https://github.com/bojieli/ai-agent-book }
 ---
 ## 为什么重要
-网页内容进入上下文后与你的指令「平级」，所以要警惕网页里的指令注入。
+网页内容进入上下文后与你的指令「平级」，所以要警惕网页里的指令注入（见「提示注入」）。抓完网页紧接着冒出联网或写文件的权限请求，先看清楚再批。
 
 ## 在 PixelWeb 里出现在哪
 时间线卡片，展开能看 URL。

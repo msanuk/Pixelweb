@@ -5,7 +5,7 @@ aliases: [系统提示, 系统提示词, system message]
 category: ai
 level: 1
 summary: 放在对话最前面、优先级最高的指令，定义模型的角色、规则和风格。
-related: [prompt, context-window, agent]
+related: [prompt, context-window, agent, prompt-cache, agents-md, kv-cache]
 appearsIn: [timeline.session, knowledge.explain]
 quiz:
   - q: PixelWeb 的「深入解释」会话与普通会话的差别主要来自？
@@ -13,9 +13,12 @@ quiz:
     answer: 1
 sources:
   - { title: "Anthropic: System prompts", url: https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/system-prompts }
+  - { title: "李博杰《深入理解 AI Agent》第 2 章", url: https://github.com/bojieli/ai-agent-book }
 ---
 ## 为什么重要
 同一个模型，换一套 system prompt 就从「执行者」变成「导师」。PixelWeb 的教学会话正是这么做的。
+
+它和工具定义一起组成每次请求的固定开头，一旦定下就别动：往里塞时间戳、改一个字，缓存都会从头算。写法上，按步骤组织的流程比一堆零散规则好用得多。
 
 ## 在 PixelWeb 里出现在哪
 点「深入解释」时，服务端给新 session 附上教学系统提示，并关闭写文件等工具。
