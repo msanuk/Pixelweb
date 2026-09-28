@@ -5,7 +5,8 @@ import { fileURLToPath } from 'node:url';
 import Fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
 import websocket from '@fastify/websocket';
-import type { ClientMessage, CommitLink, ExplainRequest, ExplainResponse, ModelInfo, OcPart, PermissionResponse, ServerInfo, ServerMessage } from '@pixelweb/shared';
+import os from 'node:os';
+import type { ClientMessage, CommitLink, ExplainRequest, ExplainResponse, ModelInfo, OcPart, PermissionResponse, ProjectOption, ServerInfo, ServerMessage } from '@pixelweb/shared';
 import { loadConfig, printUsage } from './config.js';
 import { OpencodeClient, type GlobalEvent } from './opencode/client.js';
 import { toModelInfo } from './opencode/models.js';
@@ -16,6 +17,7 @@ import { CommitIndex, resolveLinks } from './activity/commits.js';
 import { analyseProject } from './analysis/deps.js';
 import { KnowledgeStore } from './knowledge/store.js';
 import { LearningStore } from './knowledge/learning.js';
+import { belongsTo, samePath, toProjectOptions } from './project.js';
 import { TEACHING_SYSTEM_PROMPT, TEACHING_TOOLS, buildExplainPrompt, teachingSessionTitle } from './knowledge/explain.js';
 
 const VERSION = '0.1.0';
@@ -40,18 +42,20 @@ async function main(): Promise<void> {
     directory: cfg.projectRoot,
     verbose: cfg.verbose,
   });
-  const gitSvc = new GitService(cfg.projectRoot);
-  const knowledge = new KnowledgeStore([
+  // Everything scoped to the project is `let`: the UI can switch projects at runtime (switchProject below).
+  let gitSvc = new GitService(cfg.projectRoot);
+  const knowledgeDirs = (root: string) => [
     path.join(REPO_ROOT, 'knowledge'),
     path.join(cfg.dataDir, 'knowledge'), // user-authored overrides
-    path.join(cfg.projectRoot, '.pixelweb', 'knowledge'), // project-specific cards
-  ]);
+    path.join(root, '.pixelweb', 'knowledge'), // project-specific cards
+  ];
+  let knowledge = new KnowledgeStore(knowledgeDirs(cfg.projectRoot));
   const learning = new LearningStore(cfg.dataDir);
   const teachingSessions = new Set<string>();
   let archCache: Awaited<ReturnType<typeof analyseProject>> | null = null;
   let archLevel: 'file' | 'dir' = 'dir';
 
-  const commitIndex = new CommitIndex();
+  let commitIndex = new CommitIndex();
   let commitLinks: CommitLink[] = [];
 
   await Promise.all([knowledge.load(), learning.load()]);
@@ -65,20 +69,63 @@ async function main(): Promise<void> {
   };
   /** Commits made before PixelWeb started: scan the most recent sessions once OpenCode is reachable. */
   const backfillCommits = async () => {
+    const index = commitIndex;
     const sessions = (await opencode.listSessions()).sort((a, b) => b.time.updated - a.time.updated).slice(0, 40);
     for (let i = 0; i < sessions.length; i += 4) {
       const batch = await Promise.all(sessions.slice(i, i + 4).map((s) => opencode.messages(s.id).catch(() => [])));
-      for (const msgs of batch) commitIndex.addMessages(msgs);
+      for (const msgs of batch) index.addMessages(msgs);
     }
-    publishCommits();
+    if (index === commitIndex) publishCommits(); // else the project changed mid-scan
   };
 
   const refreshArch = async (level = archLevel) => {
     archLevel = level;
-    archCache = await analyseProject(cfg.projectRoot, { level });
-    hub.broadcast({ type: 'arch.graph', graph: archCache });
-    return archCache;
+    const root = cfg.projectRoot;
+    const graph = await analyseProject(root, { level });
+    if (root !== cfg.projectRoot) return graph; // the project changed mid-scan: don't show the old one
+    archCache = graph;
+    hub.broadcast({ type: 'arch.graph', graph });
+    return graph;
   };
+
+  const startGit = (svc: GitService) => {
+    svc.on('snapshot', (snapshot) => {
+      hub.broadcast({ type: 'git.snapshot', snapshot });
+      publishCommits(); // a new commit may pin a link that had no hash yet
+    });
+    svc.on('error', (e) => console.warn('[pixelweb] git:', e instanceof Error ? e.message : e));
+    void svc.refresh().then(() => svc.watch()).catch((e) => console.warn('[pixelweb] git init:', e?.message ?? e));
+  };
+
+  const hello = (): ServerMessage => ({ type: 'hello', server: { version: VERSION, opencodeUrl: cfg.opencodeUrl, projectRoot: cfg.projectRoot } });
+  // model limits can come from a project's opencode.json, so they're cached per project
+  let modelsCache: { at: number; info: ModelInfo } | null = null;
+
+  /** Points every project-scoped service at `dir`; the UI sees a `hello` with the new root and reloads. */
+  const switchProject = async (dir: string) => {
+    gitSvc.removeAllListeners();
+    await gitSvc.close();
+    cfg.projectRoot = dir;
+    visited.add(dir);
+    opencode.setDirectory(dir);
+    modelsCache = null;
+    archCache = null;
+    commitIndex = new CommitIndex();
+    commitLinks = [];
+    const next = new KnowledgeStore(knowledgeDirs(dir));
+    await next.load();
+    knowledge = next;
+    gitSvc = new GitService(dir);
+    hub.broadcast(hello());
+    hub.broadcast({ type: 'activity.commits', links: commitLinks });
+    startGit(gitSvc);
+    void refreshArch().catch((e) => console.warn('[pixelweb] arch:', e?.message ?? e));
+    if (opencode.isConnected) void backfillCommits().catch((e) => console.warn('[pixelweb] commit backfill:', e?.message ?? e));
+    console.log(`[pixelweb] project: ${dir}`);
+  };
+  let switching: Promise<void> = Promise.resolve();
+  /** Projects shown this run, so the startup one stays in the picker even if OpenCode never opened it. */
+  const visited = new Set([cfg.projectRoot]);
 
   // ---- wiring ----------------------------------------------------------------
   let wasConnected = false;
@@ -90,6 +137,8 @@ async function main(): Promise<void> {
     else if (s.error) console.log(`[pixelweb] opencode unreachable (${s.error}); retrying…`);
   });
   opencode.on('event', (ev: GlobalEvent) => {
+    // /global/event carries every project OpenCode has open; only the visualised one is ours
+    if (!belongsTo(ev.directory, cfg.projectRoot)) return;
     hub.broadcast({ type: 'opencode.event', event: ev.payload, directory: ev.directory, receivedAt: Date.now() });
     const t = ev.payload.type;
     if (t === 'message.part.updated' && commitIndex.addPart((ev.payload.properties as { part: OcPart }).part)) publishCommits();
@@ -102,11 +151,6 @@ async function main(): Promise<void> {
     }
   });
   let archTimer: NodeJS.Timeout | undefined;
-  gitSvc.on('snapshot', (snapshot) => {
-    hub.broadcast({ type: 'git.snapshot', snapshot });
-    publishCommits(); // a new commit may pin a link that had no hash yet
-  });
-  gitSvc.on('error', (e) => console.warn('[pixelweb] git:', e instanceof Error ? e.message : e));
 
   // ---- http -------------------------------------------------------------------
   const app = Fastify({ logger: false });
@@ -136,7 +180,7 @@ async function main(): Promise<void> {
       if (msg.type === 'arch.refresh') void refreshArch(msg.level ?? archLevel).catch(() => {});
     });
     const send = (m: ServerMessage) => hub.send(socket, m);
-    send({ type: 'hello', server: { version: VERSION, opencodeUrl: cfg.opencodeUrl, projectRoot: cfg.projectRoot } });
+    send(hello());
     send({ type: 'opencode.status', connected: opencode.isConnected });
     if (gitSvc.current) send({ type: 'git.snapshot', snapshot: gitSvc.current });
     if (archCache) send({ type: 'arch.graph', graph: archCache });
@@ -169,7 +213,6 @@ async function main(): Promise<void> {
     }
   });
   // model token limits for the context meter; they rarely change, so cache briefly
-  let modelsCache: { at: number; info: ModelInfo } | null = null;
   app.get('/api/models', async (_req, reply) => {
     if (modelsCache && Date.now() - modelsCache.at < 5 * 60_000) return modelsCache.info;
     try {
@@ -220,6 +263,23 @@ async function main(): Promise<void> {
     } catch (e) {
       return reply.code(502).send({ error: String(e instanceof Error ? e.message : e) });
     }
+  });
+
+  // -- projects: OpenCode serves many; PixelWeb visualises one at a time
+  app.get('/api/projects', async (): Promise<ProjectOption[]> => {
+    const projects = await opencode.listProjects().catch(() => []);
+    return toProjectOptions([...projects, ...[...visited].map((worktree) => ({ worktree }))], cfg.projectRoot);
+  });
+  app.post<{ Body: { dir?: string } }>('/api/project', async (req, reply) => {
+    const raw = typeof req.body?.dir === 'string' ? req.body.dir.trim() : '';
+    if (!raw) return reply.code(400).send({ error: 'dir required' });
+    const dir = path.resolve(raw.replace(/^~(?=$|[\\/])/, os.homedir()));
+    const stat = await fs.promises.stat(dir).catch(() => null);
+    if (!stat?.isDirectory()) return reply.code(400).send({ error: `找不到这个目录：${dir}` });
+    // serialised, so two quick clicks can't interleave their teardown and setup
+    switching = switching.catch(() => {}).then(() => (samePath(dir, cfg.projectRoot) ? undefined : switchProject(dir)));
+    await switching;
+    return { projectRoot: cfg.projectRoot };
   });
 
   // -- git / architecture
@@ -316,7 +376,7 @@ async function main(): Promise<void> {
   console.log(`[pixelweb] knowledge cards: ${knowledge.all().length}`);
 
   opencode.start();
-  void gitSvc.refresh().then(() => gitSvc.watch()).catch((e) => console.warn('[pixelweb] git init:', e?.message ?? e));
+  startGit(gitSvc);
   void refreshArch().catch((e) => console.warn('[pixelweb] arch init:', e?.message ?? e));
 
   const shutdown = async () => {

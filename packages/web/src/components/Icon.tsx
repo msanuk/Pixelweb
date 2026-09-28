@@ -58,6 +58,8 @@ const PATHS = {
   ),
   collapse: <polyline points="15 18 9 12 15 6" />,
   expand: <polyline points="9 18 15 12 9 6" />,
+  down: <polyline points="6 9 12 15 18 9" />,
+  check: <polyline points="20 6 9 17 4 12" />,
   close: (
     <>
       <line x1="18" y1="6" x2="6" y2="18" />

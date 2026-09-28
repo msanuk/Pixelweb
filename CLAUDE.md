@@ -13,7 +13,7 @@ npm workspaces monorepo (`packages/*`), Node >= 20. Run everything from the repo
 ```bash
 npm install
 npm run dev          # server (tsx watch, :7420) + web (vite, :5173, proxies /api and /ws to 7420)
-npm run dev:mock     # fake `opencode serve` on :4096 with sample sessions + streaming replies (PORT / DIR env override)
+npm run dev:mock     # fake `opencode serve` on :4096 with sample sessions + streaming replies (PORT / DIR env override; PROJECTS=dir1:dir2 adds more projects to switch to)
 npm run build        # server: tsc → packages/server/dist; web: vite build → packages/server/public
 npm run typecheck
 npm test             # vitest, server and web packages
@@ -28,7 +28,7 @@ npm test --workspace=@pixelweb/server -- -t "parseLog"
 npm test --workspace=@pixelweb/web
 ```
 
-Server config comes from CLI flags or env (`packages/server/src/config.ts`): `--opencode`/`PIXELWEB_OPENCODE_URL` (default `http://127.0.0.1:4096`), `--opencode-username`/`OPENCODE_SERVER_USERNAME` (default `opencode`), `--opencode-password`/`OPENCODE_SERVER_PASSWORD`, `--project`/`PIXELWEB_PROJECT` (default cwd), `--port`/`PIXELWEB_PORT` (7420), `--host`, `--password`/`PIXELWEB_PASSWORD` (PixelWeb login), `--data-dir`/`PIXELWEB_DATA_DIR` (`~/.pixelweb`), `--verbose`.
+Server config comes from CLI flags or env (`packages/server/src/config.ts`): `--opencode`/`PIXELWEB_OPENCODE_URL` (default `http://127.0.0.1:4096`), `--opencode-username`/`OPENCODE_SERVER_USERNAME` (default `opencode`), `--opencode-password`/`OPENCODE_SERVER_PASSWORD`, `--project`/`PIXELWEB_PROJECT` (default cwd — which for `npm run dev` is `packages/server`; only the startup project, see project switching below), `--port`/`PIXELWEB_PORT` (7420), `--host`, `--password`/`PIXELWEB_PASSWORD` (PixelWeb login), `--data-dir`/`PIXELWEB_DATA_DIR` (`~/.pixelweb`), `--verbose`.
 
 ## Architecture
 
@@ -39,6 +39,7 @@ Access control lives in `server/src/auth.ts` (`registerAuth`, an `onRequest` hoo
 - **`packages/shared`** — the contract. Types only, consumed as raw `.ts` (`main: src/index.ts`, no build step). Contains mirror types of OpenCode's SDK (`Oc*`, kept dependency-free on purpose), git/arch/knowledge/learning types, and the WS protocol (`ServerMessage` / `ClientMessage`). Changing a server↔web payload means editing this file first.
 - **`packages/server`** (Fastify, ESM, `NodeNext` — relative imports need `.js` extensions):
   - `index.ts` wires everything: services, all `/api` routes, the `/ws` handler, and event-driven refreshes (opencode `file.edited` / `session.idle` etc. debounce a git refresh and an arch re-analysis). On WS connect it replays current state (`hello`, status, git snapshot, arch graph, learning state).
+  - Project switching: one `opencode serve` holds many projects (each REST call is scoped by `?directory=`), PixelWeb visualises one at a time. `GET /api/projects` lists OpenCode's `GET /project` plus projects used this run (`project.ts`, pure, tested); `POST /api/project { dir }` runs `switchProject`, which swaps every project-scoped service (`cfg.projectRoot`, the client's directory, `GitService`, `KnowledgeStore` with the project's cards, arch cache, `CommitIndex`, models cache) and broadcasts a fresh `hello`. Those services are `let` bindings, so route handlers must read them at request time and async work must check the project didn't change mid-flight. `/global/event` carries every project's events; `belongsTo` drops those whose `directory` isn't nested with the current root. The choice isn't persisted — a restart goes back to `--project`.
   - `opencode/client.ts` — the **only** module that talks to OpenCode: hand-rolled fetch + SSE parser with exponential-backoff reconnect, `?directory=` scoping, basic auth. It deliberately avoids `@opencode-ai/sdk`. Other agents (Claude Code, Codex) are meant to be added as adapters emitting the same `status`/`event` shape.
   - `ws.ts` — `Hub` broadcasts every `ServerMessage` to every tab.
   - `git/service.ts` — shells out to `git` (fields separated by `\u001f`), pure `parseLog`/`parseBranches`/`parseStatus` functions (unit-tested), chokidar watch on `.git`.
@@ -54,6 +55,7 @@ Access control lives in `server/src/auth.ts` (`registerAuth`, an `onRequest` hoo
   - `lib/context.ts` — the timeline's context meter. `compactionThreshold` mirrors OpenCode's own overflow check (v1.17: window minus `min(output limit, 32k)`, or `limit.input` minus `compaction.reserved` ?? 20k); limits come from `GET /api/models` (OpenCode `/config/providers` + `/config`). Re-check it when bumping the OpenCode version.
   - `lib/permissions.ts` — OpenCode changed its permission API: 1.x sends `permission.asked` ({ permission, patterns, tool }) and `permission.replied` ({ requestID }), older versions `permission.updated` / `permissionID`. `normalizePermission` maps both onto `OcPermission`; the server replies via `POST /permission/:id/reply`, falling back to the deprecated `/session/:id/permissions/:id` on 404, and `GET /api/permissions` loads requests already pending when the page opens.
   - `lib/settings.ts` (per-browser prefs in localStorage, applied pre-paint by the inline script in `index.html` like the theme) and `lib/notify.ts` (system notifications + an unread count in the tab title; the rules in `lib/alerts.ts` are pure). System notifications need a secure context, so over plain `http://<server-ip>` only the title count works.
+  - `setServer` (on every `hello`) is where a project change lands: if `projectRoot` differs from the last one it clears all project-scoped state and reloads sessions, models, permissions and the knowledge index. The top-bar crumb is `components/ProjectPicker.tsx`.
   - Cross-panel jumps go through one-shot store fields (`archFocus`, `gitFocus`, `partFocus`, set by `showInArch`/`showCommit`/`showPart`) that the target panel consumes and clears.
   - `panels/` — one component per tab (Timeline, GitGraph, ArchGraph via d3-force, Knowledge).
 

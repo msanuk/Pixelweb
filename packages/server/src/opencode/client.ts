@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events';
 import type { OcEvent, OcMessageWithParts, OcModelLimit, OcSession, PermissionResponse } from '@pixelweb/shared';
+import type { OcProject } from '../project.js';
 
 /** A non-2xx answer from OpenCode; `status` lets callers fall back between API versions. */
 export class OpencodeHttpError extends Error {
@@ -54,6 +55,11 @@ export class OpencodeClient extends EventEmitter {
     return this.connected;
   }
 
+  /** Re-scopes later REST calls to another project. The SSE stream is global, so it stays connected. */
+  setDirectory(directory: string): void {
+    this.opts.directory = directory;
+  }
+
   private headers(extra: Record<string, string> = {}): Record<string, string> {
     const h: Record<string, string> = { accept: 'application/json', ...extra };
     if (this.opts.password) {
@@ -99,6 +105,16 @@ export class OpencodeClient extends EventEmitter {
 
   config(): Promise<{ compaction?: { auto?: boolean; reserved?: number } }> {
     return this.json('config');
+  }
+
+  /** Every project OpenCode has opened (≥ 1.x `GET /project`); empty on versions without it. */
+  async listProjects(): Promise<OcProject[]> {
+    try {
+      return await this.json<OcProject[]>('project');
+    } catch (e) {
+      if (e instanceof OpencodeHttpError && e.status === 404) return [];
+      throw e;
+    }
   }
 
   listSessions(): Promise<OcSession[]> {

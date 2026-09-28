@@ -11,6 +11,7 @@ import type {
   OcMessageWithParts,
   OcSession,
   PermissionResponse,
+  ProjectOption,
   ServerInfo,
 } from '@pixelweb/shared';
 
@@ -43,6 +44,8 @@ export const api = {
   login: (password: string) => req<{ ok: boolean }>('/api/login', { method: 'POST', body: JSON.stringify({ password }) }),
   logout: () => req<{ ok: boolean }>('/api/logout', { method: 'POST' }),
   info: () => req<ServerInfo>('/api/info'),
+  projects: () => req<ProjectOption[]>('/api/projects'),
+  switchProject: (dir: string) => req<{ projectRoot: string }>('/api/project', { method: 'POST', body: JSON.stringify({ dir }) }),
   models: () => req<ModelInfo>('/api/models'),
   permissions: () => req<Record<string, unknown>[]>('/api/permissions'),
   sessions: () => req<OcSession[]>('/api/sessions'),

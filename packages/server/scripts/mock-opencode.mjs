@@ -1,11 +1,15 @@
 // Minimal stand-in for `opencode serve`, for developing the UI without a real agent.
-// Usage: npm run dev:mock   (serves on 4096; PORT / DIR env override)
+// Usage: npm run dev:mock   (serves on 4096; PORT / DIR env override; PROJECTS=dir1:dir2 lists extra projects, with no sessions)
 import http from 'node:http';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 const PORT = Number(process.env.PORT ?? 4096);
 const dir = process.env.DIR ?? process.cwd();
 const now = () => Date.now();
+const extraProjects = (process.env.PROJECTS ?? '').split(path.delimiter).filter(Boolean).map((p) => path.resolve(p));
+// like opencode, `?directory=` scopes a request to one project; the sample sessions all live in `dir`
+const nested = (a, b) => a === b || a.startsWith(b + path.sep);
+const inDir = (d) => !d || nested(path.resolve(d), dir) || nested(dir, path.resolve(d));
 const sessions = [
   { id: 'ses_1', projectID: 'p', directory: dir, title: '修复登录页 bug', version: '1', time: { created: now() - 60000, updated: now() - 1000 }, summary: { additions: 12, deletions: 3, files: 2 } },
   { id: 'ses_2', projectID: 'p', directory: dir, parentID: 'ses_1', title: '子任务：搜索相关文件', version: '1', time: { created: now() - 50000, updated: now() - 20000 } },
@@ -70,7 +74,8 @@ http.createServer((req, res) => {
   if (p === '/path') return json(res, 200, { state: '', config: '', worktree: dir, directory: dir });
   if (p === '/config/providers') return json(res, 200, { default: { anthropic: 'claude-sonnet-4' }, providers: [{ id: 'anthropic', name: 'Anthropic', models: { 'claude-sonnet-4': { id: 'claude-sonnet-4', name: 'Claude Sonnet 4', limit: { context: 200000, output: 64000 } } } }] });
   if (p === '/config') return json(res, 200, { compaction: { auto: true } });
-  if (p === '/session' && req.method === 'GET') return json(res, 200, sessions);
+  if (p === '/project') return json(res, 200, [dir, ...extraProjects].map((w, i) => ({ id: 'prj_' + i, worktree: w, vcs: 'git', time: { created: now() - 86400000, updated: now() - i * 3600000 } })));
+  if (p === '/session' && req.method === 'GET') return json(res, 200, inDir(u.searchParams.get('directory')) ? sessions : []);
   if (p === '/session' && req.method === 'POST') {
     let body = ''; req.on('data', (c) => (body += c)); req.on('end', () => {
       const b = JSON.parse(body || '{}'); const s = { id: 'ses_' + counter++, projectID: 'p', directory: dir, title: b.title ?? 'new', version: '1', time: { created: now(), updated: now() } };

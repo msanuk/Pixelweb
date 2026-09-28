@@ -12,7 +12,7 @@ export interface PixelwebConfig {
   opencodePassword?: string;
   /** Password for the PixelWeb UI itself; unset = no login (only safe on 127.0.0.1). */
   password?: string;
-  /** Project directory to visualise. Defaults to cwd; may be overridden by opencode's /path. */
+  /** Project directory to visualise. Defaults to cwd; the UI can switch it at runtime (POST /api/project). */
   projectRoot: string;
   /** Where learning records are persisted. */
   dataDir: string;
