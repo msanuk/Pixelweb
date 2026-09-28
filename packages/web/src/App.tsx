@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { CardDrawer } from './components/CardDrawer';
 import { SettingsDialog } from './components/Settings';
 import { CommandPalette, PaletteTrigger } from './components/CommandPalette';
+import { ProjectPicker } from './components/ProjectPicker';
 import { Icon, type IconName } from './components/Icon';
 import { Timeline } from './panels/Timeline';
 import { GitGraph } from './panels/GitGraph';
@@ -155,7 +156,6 @@ function Login() {
 function TopBar({ onOpenPalette }: { onOpenPalette: () => void }) {
   const git = useStore((s) => s.git);
   const server = useStore((s) => s.server);
-  const project = server?.projectRoot.split(/[\\/]/).filter(Boolean).pop(); // Windows paths use backslashes
 
   return (
     <header className="topbar">
@@ -163,12 +163,10 @@ function TopBar({ onOpenPalette }: { onOpenPalette: () => void }) {
         <span className="brand">
           <span className="logo">▦</span> PixelWeb
         </span>
-        {project && (
+        {server && (
           <>
             <span className="sep">/</span>
-            <span className="mono" title={server?.projectRoot}>
-              {project}
-            </span>
+            <ProjectPicker />
           </>
         )}
         {git && (

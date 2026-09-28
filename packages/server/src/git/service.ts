@@ -89,6 +89,7 @@ export class GitService extends EventEmitter {
   private snapshot: GitSnapshot | null = null;
   private refreshing: Promise<GitSnapshot | null> | null = null;
   private root: string | null = null;
+  private closed = false;
 
   constructor(private readonly projectRoot: string, private readonly maxCommits = 400) {
     super();
@@ -197,6 +198,7 @@ export class GitService extends EventEmitter {
     if (!(await this.isRepo())) return;
     const root = (await git(this.projectRoot, ['rev-parse', '--show-toplevel'])).trim();
     const gitDir = (await git(root, ['rev-parse', '--git-dir'])).trim();
+    if (this.closed) return; // closed while resolving: don't leak a watcher
     const abs = path.isAbsolute(gitDir) ? gitDir : path.join(root, gitDir);
     const targets = ['HEAD', 'ORIG_HEAD', 'index', 'packed-refs', 'refs', 'logs/HEAD']
       .map((t) => path.join(abs, t))
@@ -211,6 +213,7 @@ export class GitService extends EventEmitter {
   }
 
   async close(): Promise<void> {
+    this.closed = true;
     if (this.timer) clearTimeout(this.timer);
     await this.watcher?.close();
   }

@@ -307,6 +307,18 @@ export type ClientMessage =
   | { type: 'git.refresh' }
   | { type: 'arch.refresh'; level?: 'file' | 'dir' };
 
+// ---- Projects (which directory PixelWeb visualises; switchable at runtime)
+
+export interface ProjectOption {
+  /** absolute path of the project's root directory */
+  dir: string;
+  /** folder name, for display */
+  name: string;
+  /** last activity OpenCode recorded for the project, ms since epoch */
+  updated?: number;
+  current: boolean;
+}
+
 export interface ServerInfo {
   version: string;
   opencodeUrl: string;

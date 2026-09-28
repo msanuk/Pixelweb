@@ -125,16 +125,54 @@ export function useStore<T>(selector: (s: State) => T): T {
 // ---- actions -----------------------------------------------------------------
 
 export async function loadInitial(): Promise<void> {
-  const [knowledge, terms, learning] = await Promise.all([
-    api.knowledge().catch(() => []),
-    api.terms().catch(() => []),
-    api.learning().catch(() => initial.learning),
-  ]);
-  setState({ knowledge, terms, learning });
+  api.learning().then((learning) => setState({ learning })).catch(() => {});
+  api.info().then((i) => setState({ teachingSessions: new Set(i.teachingSessions) })).catch(() => {});
+  await loadProjectData();
+}
+
+/** Everything that depends on which project the server visualises (cards too: a project can bring its own). */
+async function loadProjectData(): Promise<void> {
+  const [knowledge, terms] = await Promise.all([api.knowledge().catch(() => []), api.terms().catch(() => [])]);
+  setState({ knowledge, terms });
   await refreshSessions();
   void loadModels();
   void loadPermissions();
-  api.info().then((i) => setState({ teachingSessions: new Set(i.teachingSessions) })).catch(() => {});
+}
+
+/**
+ * Every `hello` names the project the server visualises. When it differs from the last one
+ * (switched from this tab or another, or the server restarted with another --project),
+ * drop what belonged to the old project; the server pushes the new git snapshot and graph itself.
+ */
+export function setServer(server: NonNullable<State['server']>): void {
+  const prev = state.server?.projectRoot;
+  setState({ server });
+  if (!prev || prev === server.projectRoot || state.needLogin) return;
+  setState({
+    sessions: [],
+    sessionsError: undefined,
+    messages: {},
+    loadingMessages: {},
+    status: {},
+    todos: {},
+    permissions: [],
+    git: null,
+    commitLinks: [],
+    arch: null,
+    modelInfo: null,
+    feed: [],
+    selectedSession: null,
+    archFocus: null,
+    gitFocus: null,
+    partFocus: null,
+  });
+  void loadProjectData();
+}
+
+export async function switchProject(dir: string): Promise<void> {
+  const { projectRoot } = await api.switchProject(dir);
+  const name = projectRoot.split(/[\\/]/).filter(Boolean).pop() ?? projectRoot;
+  toast(`已切换到项目「${name}」`);
 }
 
 /** Requests already waiting when the page opened (events only bring new ones). */
@@ -156,8 +194,10 @@ export async function loadModels(): Promise<void> {
 }
 
 export async function refreshSessions(): Promise<void> {
+  const root = state.server?.projectRoot;
   try {
     const sessions = await api.sessions();
+    if (root && state.server?.projectRoot !== root) return; // answered for the project we just left
     setState((s) => ({
       sessions,
       sessionsError: undefined,
