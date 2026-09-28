@@ -13,6 +13,7 @@ import type {
   PermissionResponse,
   ProjectOption,
   ServerInfo,
+  UsageReport,
 } from '@pixelweb/shared';
 
 let onUnauthorized = () => {};
@@ -47,6 +48,8 @@ export const api = {
   projects: () => req<ProjectOption[]>('/api/projects'),
   switchProject: (dir: string) => req<{ projectRoot: string }>('/api/project', { method: 'POST', body: JSON.stringify({ dir }) }),
   models: () => req<ModelInfo>('/api/models'),
+  usage: (from: number, to: number) =>
+    req<UsageReport>(`/api/usage?from=${from}&to=${to}&tz=${new Date().getTimezoneOffset()}`),
   permissions: () => req<Record<string, unknown>[]>('/api/permissions'),
   sessions: () => req<OcSession[]>('/api/sessions'),
   messages: (id: string) => req<OcMessageWithParts[]>(`/api/sessions/${encodeURIComponent(id)}/messages`),

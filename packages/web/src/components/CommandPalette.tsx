@@ -9,7 +9,7 @@ import { Icon, type IconName } from './Icon';
 const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 export const PALETTE_SHORTCUT = IS_MAC ? '⌘K' : 'Ctrl K';
 
-const TAB_ICON: Record<Tab, IconName> = { timeline: 'timeline', git: 'git', arch: 'arch', knowledge: 'book' };
+const TAB_ICON: Record<Tab, IconName> = { timeline: 'timeline', git: 'git', arch: 'arch', knowledge: 'book', usage: 'chart' };
 const optionId = (i: number) => `cmdk-opt-${i}`;
 
 /** The top bar's stand-in for a search box: opens the palette. */

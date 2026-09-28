@@ -38,6 +38,39 @@ const messages = {
   ses_2b: [],
 };
 
+// Two weeks of older sessions on a few models, for the 用量 page. opencodego reports no cache use, like an
+// openai-compatible provider that doesn't return cached-token counts.
+{
+  const day = 86_400_000;
+  const plan = [
+    [13, 'anthropic', 'claude-sonnet-4', 3], [12, 'anthropic', 'claude-sonnet-4', 5], [10, 'opencodego', 'deepseek-v4-pro', 4],
+    [9, 'anthropic', 'claude-haiku-4-5', 2], [7, 'anthropic', 'claude-sonnet-4', 6], [6, 'opencodego', 'deepseek-v4-pro', 3],
+    [4, 'anthropic', 'claude-sonnet-4', 4], [3, 'anthropic', 'claude-haiku-4-5', 3], [2, 'opencodego', 'glm-5.2', 5], [1, 'anthropic', 'claude-sonnet-4', 7],
+  ];
+  plan.forEach(([ago, providerID, modelID, steps], n) => {
+    const id = `ses_h${n}`;
+    const T = now() - ago * day + (n % 3) * 3_600_000;
+    const cached = providerID === 'anthropic';
+    const parts = [];
+    for (let i = 0; i < steps; i++) {
+      const prompt = 9000 + i * 2500 + n * 300;
+      const read = cached ? (i === 0 ? 0 : Math.round(prompt * 0.85)) : 0;
+      const write = cached ? (i === 0 ? prompt - 1200 : prompt - read - 600) : 0;
+      const tokens = { input: prompt - read - write, output: 400 + 90 * i, reasoning: modelID.startsWith('deepseek') ? 200 : 0, cache: { read, write } };
+      parts.push({ id: `${id}_s${i}`, sessionID: id, messageID: `${id}_a`, type: 'step-finish', reason: i === steps - 1 ? 'stop' : 'tool-calls', cost: cached ? 0.01 + i * 0.004 : 0, tokens });
+    }
+    const last = parts.at(-1);
+    sessions.push({ id, projectID: 'p', directory: dir, title: `历史会话 ${n + 1}`, version: '1', time: { created: T, updated: T + 5 * 60000 } });
+    messages[id] = [
+      { info: { id: `${id}_u`, sessionID: id, role: 'user', time: { created: T }, agent: 'build', model: { providerID, modelID } },
+        parts: [{ id: `${id}_t`, sessionID: id, messageID: `${id}_u`, type: 'text', text: '示例' }] },
+      // like opencode, the message keeps only the last step's tokens, but the summed cost
+      { info: { id: `${id}_a`, sessionID: id, role: 'assistant', time: { created: T + 1000, completed: T + 5 * 60000 }, parentID: `${id}_u`, modelID, providerID, mode: 'build', cost: parts.reduce((c, p) => c + p.cost, 0), tokens: last.tokens },
+        parts },
+    ];
+  });
+}
+
 // A session whose prompt cache hits, then breaks twice: after an idle gap and after switching agent.
 {
   const T = now() - 20 * 60000;

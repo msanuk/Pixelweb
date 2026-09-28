@@ -8,6 +8,7 @@ import { Timeline } from './panels/Timeline';
 import { GitGraph } from './panels/GitGraph';
 import { ArchGraph } from './panels/ArchGraph';
 import { Knowledge } from './panels/Knowledge';
+import { Usage } from './panels/Usage';
 import { openCard, refreshSessions, selectSession, setState, useStore, type Tab } from './lib/store';
 import { displayTitle, isTeachingTitle, relTime } from './lib/format';
 import { api } from './lib/api';
@@ -19,6 +20,7 @@ const TABS: { id: Tab; label: string; icon: IconName }[] = [
   { id: 'git', label: 'Git', icon: 'git' },
   { id: 'arch', label: '架构', icon: 'arch' },
   { id: 'knowledge', label: '知识库', icon: 'book' },
+  { id: 'usage', label: '用量', icon: 'chart' },
 ];
 
 /*
@@ -64,6 +66,7 @@ export function App() {
           {tab === 'git' && <GitGraph />}
           {tab === 'arch' && <ArchGraph />}
           {tab === 'knowledge' && <Knowledge />}
+          {tab === 'usage' && <Usage />}
         </section>
         <CardDrawer />
       </div>

@@ -311,6 +311,40 @@ export type ClientMessage =
   | { type: 'git.refresh' }
   | { type: 'arch.refresh'; level?: 'file' | 'dir' };
 
+// ---- Token usage (the 用量 page)
+
+/** Token and cost sums over some model requests (OpenCode steps). `input` excludes cached tokens. */
+export interface UsageTotals {
+  steps: number;
+  input: number;
+  output: number;
+  reasoning: number;
+  cacheRead: number;
+  cacheWrite: number;
+  cost: number;
+}
+
+export interface UsageModelRow extends UsageTotals {
+  providerID: string;
+  modelID: string;
+  /** sessions (subtasks included) that used this model in the range */
+  sessions: number;
+}
+
+export interface UsageReport {
+  /** ms since epoch, `to` exclusive */
+  from: number;
+  to: number;
+  sessions: number;
+  total: UsageTotals;
+  /** most prompt tokens first */
+  models: UsageModelRow[];
+  /** one entry per local day that had requests, oldest first; `models` is keyed "providerID/modelID" */
+  days: { day: string; total: UsageTotals; models: Record<string, UsageTotals> }[];
+  /** sessions whose messages couldn't be loaded, so are missing from the sums */
+  failed: number;
+}
+
 // ---- Projects (which directory PixelWeb visualises; switchable at runtime)
 
 export interface ProjectOption {

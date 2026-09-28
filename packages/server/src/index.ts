@@ -19,6 +19,7 @@ import { analyseProject } from './analysis/deps.js';
 import { KnowledgeStore } from './knowledge/store.js';
 import { LearningStore } from './knowledge/learning.js';
 import { belongsTo, samePath, toProjectOptions } from './project.js';
+import { UsageIndex } from './usage.js';
 import { TEACHING_SYSTEM_PROMPT, TEACHING_TOOLS, buildExplainPrompt, teachingSessionTitle } from './knowledge/explain.js';
 
 const VERSION = '0.1.0';
@@ -58,6 +59,8 @@ async function main(): Promise<void> {
 
   let commitIndex = new CommitIndex();
   let commitLinks: CommitLink[] = [];
+  // keyed by session id, which is unique across projects, so it survives a project switch
+  const usage = new UsageIndex((id) => opencode.messages(id));
 
   await Promise.all([knowledge.load(), learning.load()]);
 
@@ -209,6 +212,19 @@ async function main(): Promise<void> {
   app.get<{ Params: { id: string } }>('/api/sessions/:id/messages', async (req, reply) => {
     try {
       return await opencode.messages(req.params.id);
+    } catch (e) {
+      return reply.code(502).send({ error: String(e instanceof Error ? e.message : e) });
+    }
+  });
+  // token usage per model over a time range, for the 用量 page
+  app.get<{ Querystring: { from?: string; to?: string; tz?: string } }>('/api/usage', async (req, reply) => {
+    const num = (v: string | undefined, d: number) => (v !== undefined && v !== '' && Number.isFinite(Number(v)) ? Number(v) : d);
+    const from = num(req.query.from, 0);
+    const to = num(req.query.to, Date.now() + 86_400_000);
+    const tz = num(req.query.tz, 0);
+    if (from >= to || Math.abs(tz) > 24 * 60) return reply.code(400).send({ error: 'bad range' });
+    try {
+      return await usage.report(await opencode.listSessions(), from, to, tz);
     } catch (e) {
       return reply.code(502).send({ error: String(e instanceof Error ? e.message : e) });
     }

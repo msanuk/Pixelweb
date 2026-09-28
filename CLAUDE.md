@@ -49,6 +49,7 @@ Access control lives in `server/src/auth.ts` (`registerAuth`, an `onRequest` hoo
   - `knowledge/` — `store.ts` loads cards from three dirs in order (repo `knowledge/`, `~/.pixelweb/knowledge/`, `<project>/.pixelweb/knowledge/`; later wins on same id); `learning.ts` persists to `<dataDir>/learning.json`; `explain.ts` holds the teaching system prompt and `TEACHING_TOOLS` (write/shell disabled).
   - "Explain" (`POST /api/explain`) creates a new OpenCode session, marks it as a teaching session in memory, and prompts it with the teaching system prompt + read-only tools. Follow-up prompts to a teaching session re-apply the same restrictions.
   - Every follow-up prompt (`POST /api/sessions/:id/prompt`) repeats the last user turn's agent, model, variant, system prompt and tools (`opencode/followup.ts`, pure, tested). OpenCode doesn't carry them over — without `agent` it runs the default agent — which would change the request prefix and miss the provider's prompt cache for the whole conversation (and turn a `plan` session into `build`).
+  - `usage.ts` — the 用量 page's `GET /api/usage?from&to&tz`: sums every session's steps in the range per `provider/model` and per local day. It counts `step-finish` parts, not assistant messages — OpenCode overwrites a message's `tokens` with its last step's (cost is summed), so message tokens undercount multi-step turns. Step lists are cached per session until its `time.updated` changes.
   - If `packages/server/public/index.html` exists (from `npm run build`), the server also serves the UI with SPA fallback.
 - **`packages/web`** (React 18 + Vite, no router or state library):
   - `lib/store.ts` — a single hand-written global store (`useSyncExternalStore`) plus `applyEvent`, a reducer that merges raw OpenCode SSE events (`message.updated`, `message.part.updated`, `session.status`, `permission.*`, `todo.updated`…) into a per-session message/part tree. Parts for sessions whose messages aren't loaded yet are dropped and fetched on open.
@@ -61,7 +62,7 @@ Access control lives in `server/src/auth.ts` (`registerAuth`, an `onRequest` hoo
   - `lib/settings.ts` (per-browser prefs in localStorage, applied pre-paint by the inline script in `index.html` like the theme) and `lib/notify.ts` (system notifications + an unread count in the tab title; the rules in `lib/alerts.ts` are pure). System notifications need a secure context, so over plain `http://<server-ip>` only the title count works.
   - `setServer` (on every `hello`) is where a project change lands: if `projectRoot` differs from the last one it clears all project-scoped state and reloads sessions, models, permissions and the knowledge index. The top-bar crumb is `components/ProjectPicker.tsx`.
   - Cross-panel jumps go through one-shot store fields (`archFocus`, `gitFocus`, `partFocus`, set by `showInArch`/`showCommit`/`showPart`) that the target panel consumes and clears.
-  - `panels/` — one component per tab (Timeline, GitGraph, ArchGraph via d3-force, Knowledge).
+  - `panels/` — one component per tab (Timeline, GitGraph, ArchGraph via d3-force, Knowledge, Usage — tokens and cache hit rate per model over a date range; range and chart helpers in `lib/usage.ts`).
 
 ## Knowledge cards
 
