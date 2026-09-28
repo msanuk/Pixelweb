@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { KnowledgeStore, parseCard, searchCards } from '../src/knowledge/store.js';
-import { buildExplainPrompt } from '../src/knowledge/explain.js';
+import { TEACHING_PERMISSION, buildExplainPrompt } from '../src/knowledge/explain.js';
 
 const raw = `---
 id: webhook
@@ -71,5 +71,13 @@ describe('buildExplainPrompt', () => {
     expect(p).toContain('tool call: webfetch');
     expect(p).toContain('/proj');
     expect(p).toContain('往深一层');
+  });
+});
+
+describe('teaching session limits', () => {
+  it('gates bash instead of removing it (Zen free models require it) and denies file edits', () => {
+    expect(TEACHING_PERMISSION).toContainEqual({ permission: 'bash', pattern: '*', action: 'ask' });
+    expect(TEACHING_PERMISSION).toContainEqual({ permission: 'edit', pattern: '*', action: 'deny' });
+    expect(TEACHING_PERMISSION.some((r) => r.permission === 'bash' && r.action === 'deny')).toBe(false);
   });
 });

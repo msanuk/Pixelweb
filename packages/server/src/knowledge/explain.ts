@@ -1,4 +1,4 @@
-import type { ExplainRequest, KnowledgeCard } from '@pixelweb/shared';
+import type { ExplainRequest, KnowledgeCard, OcPermissionRule } from '@pixelweb/shared';
 
 /**
  * Builds the teaching prompt PixelWeb hands to a fresh OpenCode session.
@@ -14,7 +14,7 @@ export const TEACHING_SYSTEM_PROMPT = `你是 PixelWeb 内置的「边干活边�
 1. 先给一句话定义（≤ 30 字），再讲「为什么这里会出现它」，把概念钉在用户当下的上下文上。
 2. 简短：整体不超过 250 字正文。工作记忆有限，一次只教一个概念，不要顺带教相邻概念，最多点名 1–2 个相关词供后续查询。
 3. 用一个来自当前项目的具体例子（可以用只读工具查看代码 / git 历史），不要编造项目里不存在的东西。
-4. 不要修改任何文件，不要执行有副作用的命令。你是导师，不是执行者。
+4. 不要修改任何文件，不要执行有副作用的命令；你没有写文件的工具，每条 shell 命令都要用户批准。你是导师，不是执行者。
 5. 结尾必须附一个「检索练习」：一道需要用户自己作答的问题（选择题或填空），不要给答案。
 6. 如有权威来源，附 1–2 个链接。
 7. 用中文回答，术语保留英文原文并在首次出现时给中文。`;
@@ -33,20 +33,18 @@ export function buildExplainPrompt(req: ExplainRequest, card?: KnowledgeCard, pr
   return lines.join('\n');
 }
 
-/** Tools the teaching session is allowed to use: read-only. */
-export const TEACHING_TOOLS: Record<string, boolean> = {
-  write: false,
-  edit: false,
-  patch: false,
-  bash: false,
-  todowrite: false,
-  todoread: false,
-  webfetch: true,
-  read: true,
-  grep: true,
-  glob: true,
-  list: true,
-};
+/**
+ * What the teaching session may do, set once when OpenCode creates it and stored with the
+ * session, so it also outlives a PixelWeb restart. `edit` covers OpenCode's edit, write and
+ * apply_patch tools. bash is gated rather than removed: Zen's free models refuse requests
+ * without it ("free tier can only be used from within OpenCode"). Prompts to this session
+ * must not send `tools`: OpenCode turns that map into the session's rules, replacing these.
+ */
+export const TEACHING_PERMISSION: OcPermissionRule[] = [
+  { permission: 'bash', pattern: '*', action: 'ask' },
+  { permission: 'edit', pattern: '*', action: 'deny' },
+  { permission: 'todowrite', pattern: '*', action: 'deny' },
+];
 
 export function teachingSessionTitle(term: string): string {
   return `📖 ${term}`;

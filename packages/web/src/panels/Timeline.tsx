@@ -425,6 +425,20 @@ function Message({ m, sessionTitle, steps }: { m: OcMessageWithParts; sessionTit
   );
 }
 
+/** The files one step changed; OpenCode lists them as absolute paths. */
+function PatchPart({ p }: { p: Extract<OcPart, { type: 'patch' }> }) {
+  const root = useStore((s) => s.server?.projectRoot ?? s.arch?.root ?? '');
+  const files = p.files.map((f) => toProjectPath(f, root) ?? f).join(', ');
+  return (
+    <div className="part step">
+      <button className="term" onClick={() => openCard('diff', `patch ${p.hash}: ${files}`)}>
+        patch
+      </button>{' '}
+      {files}
+    </div>
+  );
+}
+
 function Part({ p, sessionTitle, cache }: { p: OcPart; sessionTitle: string; cache?: StepCache }) {
   switch (p.type) {
     case 'text': {
@@ -486,17 +500,8 @@ function Part({ p, sessionTitle, cache }: { p: OcPart; sessionTitle: string; cac
           {(p as any).auto ? '（自动）' : ''}
         </div>
       );
-    case 'patch': {
-      const pp = p as Extract<OcPart, { type: 'patch' }>;
-      return (
-        <div className="part step">
-          <button className="term" onClick={() => openCard('diff', `patch ${pp.hash}: ${pp.files.join(', ')}`)}>
-            patch
-          </button>{' '}
-          {pp.files.join(', ')}
-        </div>
-      );
-    }
+    case 'patch':
+      return <PatchPart p={p as Extract<OcPart, { type: 'patch' }>} />;
     case 'subtask': {
       const s = p as Extract<OcPart, { type: 'subtask' }>;
       return (

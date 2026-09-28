@@ -110,6 +110,14 @@ export interface OcPermission {
   time: { created: number };
 }
 
+/** One rule of a session's own permission set (OpenCode 1.x, `POST /session { permission }`); the last match wins. */
+export interface OcPermissionRule {
+  /** tool permission key: bash, edit, webfetch… */
+  permission: string;
+  pattern: string;
+  action: 'allow' | 'ask' | 'deny';
+}
+
 /** A model's token limits, from OpenCode's `/config/providers`. */
 export interface OcModelLimit {
   context: number;

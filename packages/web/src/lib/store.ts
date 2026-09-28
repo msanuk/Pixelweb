@@ -196,10 +196,11 @@ export async function loadModels(): Promise<void> {
 export async function refreshSessions(): Promise<void> {
   const root = state.server?.projectRoot;
   try {
-    const sessions = await api.sessions();
+    const [sessions, running] = await Promise.all([api.sessions(), api.sessionStatus().catch(() => ({}))]);
     if (root && state.server?.projectRoot !== root) return; // answered for the project we just left
     setState((s) => ({
       sessions,
+      status: Object.fromEntries(Object.entries(running).map(([id, st]) => [id, st.type])),
       sessionsError: undefined,
       selectedSession: s.selectedSession ?? sessions[0]?.id ?? null,
     }));
