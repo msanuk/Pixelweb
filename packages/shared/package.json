@@ -6,6 +6,13 @@
   "main": "src/index.ts",
   "types": "src/index.ts",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./steps": {
+      "types": "./src/steps.d.ts",
+      "default": "./src/steps.js"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
   }
 }

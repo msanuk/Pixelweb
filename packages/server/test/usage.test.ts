@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { OcMessageWithParts, OcSession } from '@pixelweb/shared';
-import { UsageIndex, aggregateUsage, dayKey, stepsOf } from '../src/usage.js';
+import { stepsOf } from '@pixelweb/shared/steps';
+import { UsageIndex, aggregateUsage, dayKey } from '../src/usage.js';
 
 const tk = (input: number, read = 0, write = 0, output = 10) => ({ input, output, reasoning: 0, cache: { read, write } });
 
@@ -11,23 +12,6 @@ function assistant(t: number, model: string, steps: ReturnType<typeof tk>[], msg
     parts: steps.map((tokens, i) => ({ id: `p${t}-${i}`, sessionID: 's', messageID: `m${t}`, type: 'step-finish', reason: 'stop', cost: 0.01, tokens })),
   };
 }
-
-describe('stepsOf', () => {
-  it('counts every step, not just the one the message keeps', () => {
-    const steps = stepsOf([assistant(1, 'a/x', [tk(100, 1000), tk(50, 1100)])]);
-    expect(steps).toHaveLength(2);
-    expect(steps.reduce((n, s) => n + s.input, 0)).toBe(150);
-    expect(steps.reduce((n, s) => n + s.cacheRead, 0)).toBe(2100);
-  });
-  it('falls back to the message tokens when there are no step-finish parts', () => {
-    const m = assistant(1, 'a/x', [], tk(70, 30));
-    expect(stepsOf([m])).toMatchObject([{ input: 70, cacheRead: 30, modelID: 'x' }]);
-    expect(stepsOf([assistant(1, 'a/x', [], tk(0, 0, 0, 0))])).toEqual([]);
-  });
-  it('ignores user messages', () => {
-    expect(stepsOf([{ info: { id: 'u', sessionID: 's', role: 'user', time: { created: 1 } }, parts: [] }])).toEqual([]);
-  });
-});
 
 describe('aggregateUsage', () => {
   const day = 86_400_000;

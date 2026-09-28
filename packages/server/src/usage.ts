@@ -1,60 +1,5 @@
-import type { OcMessageWithParts, OcPart, OcSession, OcTokens, UsageModelRow, UsageReport, UsageTotals } from '@pixelweb/shared';
-
-/** One model request: an OpenCode step, timed by the assistant message it belongs to. */
-export interface UsageStep {
-  t: number;
-  providerID: string;
-  modelID: string;
-  input: number;
-  output: number;
-  reasoning: number;
-  cacheRead: number;
-  cacheWrite: number;
-  cost: number;
-}
-
-const tokenFields = (t: OcTokens | undefined) => ({
-  input: t?.input ?? 0,
-  output: t?.output ?? 0,
-  reasoning: t?.reasoning ?? 0,
-  cacheRead: t?.cache?.read ?? 0,
-  cacheWrite: t?.cache?.write ?? 0,
-});
-
-/**
- * Every request a session made. Counted from step-finish parts: an assistant
- * message's own `tokens` only hold its last step (OpenCode overwrites them per
- * step), so summing messages would undercount multi-step turns. A message with
- * no step-finish (older OpenCode, or it failed mid-step) counts as one step.
- */
-export function stepsOf(messages: OcMessageWithParts[]): UsageStep[] {
-  const out: UsageStep[] = [];
-  for (const m of messages) {
-    const info = m.info;
-    if (info.role !== 'assistant') continue;
-    const base = { t: info.time.created, providerID: info.providerID, modelID: info.modelID };
-    const finishes = m.parts.filter((p): p is Extract<OcPart, { type: 'step-finish' }> => p.type === 'step-finish');
-    if (finishes.length) {
-      for (const f of finishes) out.push({ ...base, ...tokenFields(f.tokens), cost: f.cost ?? 0 });
-    } else {
-      const f = tokenFields(info.tokens);
-      if (f.input + f.output + f.cacheRead + f.cacheWrite > 0) out.push({ ...base, ...f, cost: info.cost ?? 0 });
-    }
-  }
-  return out;
-}
-
-export const emptyTotals = (): UsageTotals => ({ steps: 0, input: 0, output: 0, reasoning: 0, cacheRead: 0, cacheWrite: 0, cost: 0 });
-
-function add(t: UsageTotals, s: UsageStep): void {
-  t.steps++;
-  t.input += s.input;
-  t.output += s.output;
-  t.reasoning += s.reasoning;
-  t.cacheRead += s.cacheRead;
-  t.cacheWrite += s.cacheWrite;
-  t.cost += s.cost;
-}
+import type { OcMessageWithParts, OcSession, UsageModelRow, UsageReport, UsageTotals } from '@pixelweb/shared';
+import { addStep, emptyTotals, stepsOf, type UsageStep } from '@pixelweb/shared/steps';
 
 /** "YYYY-MM-DD" in the viewer's zone; `tzOffset` is `Date#getTimezoneOffset()` (minutes, UTC − local). */
 export function dayKey(t: number, tzOffset: number): string {
@@ -78,16 +23,16 @@ export function aggregateUsage(
       if (s.t < from || s.t >= to) continue;
       const key = `${s.providerID}/${s.modelID}`;
       used.add(sessionID);
-      add(total, s);
+      addStep(total, s);
       let row = models.get(key);
       if (!row) models.set(key, (row = { providerID: s.providerID, modelID: s.modelID, sessions: 0, ids: new Set(), ...emptyTotals() }));
-      add(row, s);
+      addStep(row, s);
       row.ids.add(sessionID);
       const dk = dayKey(s.t, tzOffset);
       let day = days.get(dk);
       if (!day) days.set(dk, (day = { day: dk, total: emptyTotals(), models: {} }));
-      add(day.total, s);
-      add((day.models[key] ??= emptyTotals()), s);
+      addStep(day.total, s);
+      addStep((day.models[key] ??= emptyTotals()), s);
     }
   }
   const prompt = (t: UsageTotals) => t.input + t.cacheRead + t.cacheWrite;
