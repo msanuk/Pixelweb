@@ -336,6 +336,11 @@ h2, h3, h4, h5 { margin: 0.4em 0; }
 .md-h { font-size: 14px; margin: 0.6em 0 0.2em; }
 .md code { background: var(--panel-2); padding: 1px 4px; border-radius: 4px; }
 .md-code code { background: none; padding: 0; }
+.md-table { overflow-x: auto; margin: 0.5em 0; }
+.md-table table { border-collapse: collapse; font-size: 12.5px; line-height: 1.45; }
+.md-table th, .md-table td { border: 1px solid var(--border); padding: 4px 10px; text-align: left; vertical-align: top; }
+.md-table th { background: var(--panel-2); font-weight: 600; white-space: nowrap; }
+.md-table td code { white-space: nowrap; }
 
 /* chips */
 .chip { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--border); margin-right: 4px; line-height: 1.5; }

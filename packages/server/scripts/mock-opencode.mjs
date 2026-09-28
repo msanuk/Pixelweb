@@ -119,7 +119,7 @@ try {
         tool('p33', 'read', { filePath: f('packages/web/src/panels/ArchGraph.tsx') }, '…', t - 45000),
         tool('p34', 'edit', { filePath: f('packages/web/src/lib/api.ts'), oldString: 'a', newString: 'b' }, 'ok', t - 40000),
         tool('p35', 'bash', { command: `git add -A && git commit -m "${subject.replace(/"/g, "'")}"` }, `[main ${short}] ${subject}\n 3 files changed`, t - 500, t + 500),
-        { id: 'p36', sessionID: 'ses_3', messageID: 'm32', type: 'text', text: `已提交 ${short}。` },
+        { id: 'p36', sessionID: 'ses_3', messageID: 'm32', type: 'text', text: `已提交 ${short}。改动如下：\n\n| 文件 | 改动 | 行数 |\n|:---|:---|---:|\n| \`src/auth.ts\` | token 过期时跳到 **登录页** | +12 |\n| \`src/router.ts\` | 守卫改用 \`isExpired() \\|\\| !user\` | +3 −1 |\n| \`test/auth.test.ts\` | 补一个过期用例 | +20 |\n\n测试全部通过。` },
       ] },
   ];
 } catch { /* not a git checkout: skip the sample */ }
