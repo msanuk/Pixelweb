@@ -49,6 +49,7 @@ export const api = {
   models: () => req<ModelInfo>('/api/models'),
   permissions: () => req<Record<string, unknown>[]>('/api/permissions'),
   sessions: () => req<OcSession[]>('/api/sessions'),
+  sessionStatus: () => req<Record<string, { type: 'idle' | 'busy' | 'retry' }>>('/api/sessions/status'),
   messages: (id: string) => req<OcMessageWithParts[]>(`/api/sessions/${encodeURIComponent(id)}/messages`),
   abort: (id: string) => req(`/api/sessions/${encodeURIComponent(id)}/abort`, { method: 'POST' }),
   prompt: (id: string, text: string) =>

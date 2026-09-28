@@ -206,6 +206,8 @@ async function main(): Promise<void> {
       return reply.code(502).send({ error: String(e instanceof Error ? e.message : e) });
     }
   });
+  // the status events only cover changes, so a page opened mid-run needs the current state
+  app.get('/api/sessions/status', async () => opencode.sessionStatus().catch(() => ({})));
   app.get<{ Params: { id: string } }>('/api/sessions/:id/messages', async (req, reply) => {
     try {
       return await opencode.messages(req.params.id);

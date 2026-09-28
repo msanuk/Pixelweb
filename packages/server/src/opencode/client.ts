@@ -122,6 +122,11 @@ export class OpencodeClient extends EventEmitter {
     return this.json('session');
   }
 
+  /** Sessions that aren't idle right now (OpenCode 1.x); idle ones are left out. */
+  sessionStatus(): Promise<Record<string, { type: string }>> {
+    return this.json('session/status');
+  }
+
   getSession(id: string): Promise<OcSession> {
     return this.json(`session/${encodeURIComponent(id)}`);
   }
