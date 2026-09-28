@@ -7,8 +7,12 @@ const session = (id: string, title: string, updated: number, parentID?: string):
 
 const THEMES: PaletteData['themes'] = [
   { id: 'system', label: '跟随系统' },
-  { id: 'paper', label: '纸白' },
-  { id: 'graphite', label: '石墨' },
+  { id: 'paper', label: '浅色' },
+  { id: 'graphite', label: '深色' },
+];
+const PALETTES: PaletteData['palettes'] = [
+  { id: 'ink', label: '纸墨' },
+  { id: 'clay', label: '陶土' },
 ];
 
 function data(extra: Partial<PaletteData> = {}): PaletteData {
@@ -24,6 +28,8 @@ function data(extra: Partial<PaletteData> = {}): PaletteData {
     ],
     themes: THEMES,
     theme: 'paper',
+    palettes: PALETTES,
+    palette: 'clay',
     canExport: true,
     ...extra,
   };
@@ -47,10 +53,20 @@ describe('buildItems', () => {
   it('adds one theme command per theme and marks the current one', () => {
     const themes = buildItems(data()).filter((i) => i.action.kind === 'theme');
     expect(themes.map((i) => [i.title, !!i.current])).toEqual([
-      ['切换主题：跟随系统', false],
-      ['切换主题：纸白', true],
-      ['切换主题：石墨', false],
+      ['切换明暗：跟随系统', false],
+      ['切换明暗：浅色', true],
+      ['切换明暗：深色', false],
     ]);
+  });
+
+  it('adds one palette command per palette, found by its old and English names too', () => {
+    const items = buildItems(data());
+    expect(items.filter((i) => i.action.kind === 'palette').map((i) => [i.title, !!i.current])).toEqual([
+      ['切换配色：纸墨', false],
+      ['切换配色：陶土', true],
+    ]);
+    expect(titles(filterItems(items, 'anthropic'), 'command')).toEqual(['切换配色：陶土']);
+    expect(titles(filterItems(items, '石墨'), 'command')).toEqual(['切换明暗：深色']);
   });
 
   it('hides the export command without learning records', () => {
@@ -94,8 +110,8 @@ describe('filterItems', () => {
   it('finds sessions, commands and pages by keyword', () => {
     const items = buildItems(data());
     expect(titles(filterItems(items, '登录'))).toEqual(['修复登录']);
-    expect(titles(filterItems(items, 'dark'))).toEqual(['切换主题：石墨']);
-    expect(titles(filterItems(items, '主题'), 'command')).toHaveLength(3);
+    expect(titles(filterItems(items, 'dark'))).toEqual(['切换明暗：深色']);
+    expect(titles(filterItems(items, '主题'), 'command')).toHaveLength(5);
     expect(titles(filterItems(items, 'architecture'))).toEqual(['架构']);
   });
 

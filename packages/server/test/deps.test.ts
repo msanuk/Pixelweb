@@ -1,5 +1,8 @@
+import { execFileSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
 import { describe, expect, it } from 'vitest';
-import { analyseProject, dirGroup, extractJsImports, extractPyImports, externalName, isGenerated, resolveJs, resolvePy } from '../src/analysis/deps.js';
+import { analyseProject, gitIgnored, dirGroup, extractJsImports, extractPyImports, externalName, isGenerated, resolveJs, resolvePy } from '../src/analysis/deps.js';
 import path from 'node:path';
 
 describe('extractJsImports', () => {
@@ -77,6 +80,36 @@ describe('analyseProject on this repo', () => {
     expect(ids.has('ext:..')).toBe(false);
     expect([...ids].some((id) => id.includes('/public/'))).toBe(false);
     expect(g.edges.some((e) => e.source === 'packages/server/src/index.ts' && e.target === 'packages/shared/src/index.ts')).toBe(true);
+  });
+});
+
+describe('gitIgnored', () => {
+  it("drops what git ignores, including a bundler's tiny chunks", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pw-deps-'));
+    try {
+      fs.mkdirSync(path.join(root, 'src'));
+      fs.mkdirSync(path.join(root, 'web/public/assets'), { recursive: true });
+      fs.writeFileSync(path.join(root, '.gitignore'), 'web/public/\nsrc/gen.ts\n');
+      fs.writeFileSync(path.join(root, 'src/a.ts'), "import './b';\n");
+      fs.writeFileSync(path.join(root, 'src/b.ts'), 'export {};\n');
+      fs.writeFileSync(path.join(root, 'src/gen.ts'), 'export {};\n');
+      fs.writeFileSync(path.join(root, 'web/main.ts'), "import '../src/a';\n");
+      fs.writeFileSync(path.join(root, 'web/public/assets/chunk-Ab12Cd34.js'), 'import{a as e}from"./x-Zz9.js";export{e as t};');
+      execFileSync('git', ['init', '-q'], { cwd: root });
+      expect([...(await gitIgnored(root))].sort()).toEqual(['src/gen.ts', 'web/public/']);
+      const g = await analyseProject(root, { level: 'file' });
+      expect(g.nodes.map((n) => n.id).sort()).toEqual(['src/a.ts', 'src/b.ts', 'web/main.ts']);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+  it('is empty outside a git work tree', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pw-deps-'));
+    try {
+      expect((await gitIgnored(root)).size).toBe(0);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 

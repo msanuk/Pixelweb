@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { getState, openCard, refreshSessions, selectSession, setState, toast, useStore, type Tab } from '../lib/store';
-import { THEMES, setTheme, useTheme } from '../lib/theme';
+import { PALETTES, THEMES, setPalette, setTheme, usePalette, useTheme } from '../lib/theme';
 import { downloadText, exportFilename, learningMarkdown } from '../lib/export';
 import { relTime } from '../lib/format';
 import { buildItems, filterItems, type PaletteAction, type PaletteItem } from '../lib/palette';
@@ -30,14 +30,15 @@ export function CommandPalette({ onClose, onOpenSettings }: { onClose: () => voi
   const knowledge = useStore((s) => s.knowledge);
   const canExport = useStore((s) => Object.keys(s.learning.records).length > 0);
   const theme = useTheme();
+  const palette = usePalette();
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
   // captured on first render, before the input takes focus
   const [restoreTo] = useState(() => (document.activeElement instanceof HTMLElement ? document.activeElement : null));
 
   const items = useMemo(
-    () => buildItems({ sessions, teaching, knowledge, themes: THEMES, theme, canExport }),
-    [sessions, teaching, knowledge, theme, canExport],
+    () => buildItems({ sessions, teaching, knowledge, themes: THEMES, theme, palettes: PALETTES, palette, canExport }),
+    [sessions, teaching, knowledge, theme, palette, canExport],
   );
   const sections = useMemo(() => filterItems(items, query), [items, query]);
   const flat = useMemo(() => sections.flatMap((s) => s.items), [sections]);
@@ -151,6 +152,8 @@ function iconFor(item: PaletteItem): IconName {
       return 'book';
     case 'theme':
       return 'contrast';
+    case 'palette':
+      return 'contrast';
     case 'settings':
       return 'settings';
     case 'export':
@@ -176,6 +179,8 @@ function perform(a: PaletteAction, openSettings: () => void): void {
       return openCard(a.id);
     case 'theme':
       return setTheme(a.theme);
+    case 'palette':
+      return setPalette(a.palette);
     case 'settings':
       return openSettings();
     case 'refresh':

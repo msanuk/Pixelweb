@@ -9,6 +9,7 @@
       try {
         var t = localStorage.getItem('pixelweb.theme');
         if (t === 'paper' || t === 'graphite') document.documentElement.dataset.theme = t;
+        if (localStorage.getItem('pixelweb.palette') === 'clay') document.documentElement.dataset.palette = 'clay';
         var s = JSON.parse(localStorage.getItem('pixelweb.settings') || '{}');
         if ([90, 110, 125].indexOf(s.scale) >= 0) document.documentElement.style.zoom = String(s.scale / 100);
         if (s.density === 'compact') document.documentElement.dataset.density = 'compact';

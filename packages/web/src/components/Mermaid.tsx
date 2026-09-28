@@ -1,5 +1,5 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
-import { useTheme } from '../lib/theme';
+import { usePalette, useTheme } from '../lib/theme';
 import { mermaidThemeVariables } from '../lib/mermaid';
 
 type MermaidApi = typeof import('mermaid').default;
@@ -52,8 +52,9 @@ function useSystemDark(): boolean {
 /** A ```mermaid block: the diagram, with its source one click away (and shown instead when it doesn't parse). */
 export function MermaidBlock({ code }: { code: string }) {
   const theme = useTheme();
+  const palette = usePalette();
   const systemDark = useSystemDark();
-  const themeKey = theme === 'system' ? `system-${systemDark ? 'dark' : 'light'}` : theme;
+  const themeKey = `${palette}-${theme === 'system' ? (systemDark ? 'graphite' : 'paper') : theme}`;
   const [state, setState] = useState<{ svg?: string; error?: string }>(() => ({ svg: cache.get(`${themeKey}\n${code}`) }));
   const [source, setSource] = useState(false);
 

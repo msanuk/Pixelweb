@@ -227,7 +227,7 @@ function ConnectionStatus() {
 function ThemeSwitch() {
   const theme = useTheme();
   return (
-    <div className="seg" role="radiogroup" aria-label="主题">
+    <div className="seg" role="radiogroup" aria-label="明暗">
       {THEMES.map((t) => (
         <button key={t.id} role="radio" aria-checked={theme === t.id} className={theme === t.id ? 'on' : ''} onClick={() => setTheme(t.id)}>
           {t.label}

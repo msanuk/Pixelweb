@@ -4,6 +4,9 @@
  * low-saturation series colours for graphs (git lanes, languages).
  * Paper (light) is the default; graphite (dark) applies via data-theme or, when
  * no explicit theme is chosen, via prefers-color-scheme.
+ * data-palette="clay" (陶土) swaps the family: cream and slate with a clay
+ * accent and serif prose, again in a light and a dark variant. Its selectors
+ * carry one more attribute than the ink ones, so they win whatever the order.
  */
 :root {
   color-scheme: light;
@@ -33,6 +36,8 @@
   --chart-miss: #93a6b8;
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  /* reply and card text */
+  --prose: var(--sans);
 }
 :root[data-theme="graphite"] {
   color-scheme: dark;
@@ -87,6 +92,93 @@
     --series-5: #c48d7a;
     --series-6: #aa9cb3;
     /* usage chart: the uncached part of a prompt, against ink for the cached part */
+    --chart-miss: #5f7285;
+  }
+}
+
+/* 陶土 (clay), light */
+:root[data-palette="clay"] {
+  color-scheme: light;
+  --bg: #f0eee6;
+  --panel: #faf9f5;
+  --panel-2: #e8e5da;
+  --border: #ddd9cd;
+  --border-strong: #c8c2b3;
+  --text: #141413;
+  --muted: #66635a;
+  --accent: #b4532f;
+  --on-accent: #faf9f5;
+  --accent-soft: #ecdccf;
+  --ok: #4d7a3a;
+  /* wine and olive, pulled away from the clay accent */
+  --bad: #8e1d3b;
+  --warn: #76690f;
+  --edge: #b8b1a2;
+  --term-line: #c9a08c;
+  --shadow: rgba(60, 40, 20, 0.12);
+  --series-1: #5b5a56;
+  --series-2: #6d7f5a;
+  --series-3: #9a7b43;
+  --series-4: #5f7285;
+  --series-5: #9a5f4c;
+  --series-6: #7d7088;
+  --chart-miss: #93a6b8;
+  --prose: Georgia, "Songti SC", "Noto Serif SC", "Source Han Serif SC", "Noto Serif CJK SC", -apple-system, "PingFang SC", "Microsoft YaHei", serif;
+}
+/* 陶土 (clay), dark */
+:root[data-palette="clay"][data-theme="graphite"] {
+  color-scheme: dark;
+  --bg: #1f1e1d;
+  --panel: #262624;
+  --panel-2: #30302d;
+  --border: #3b3a36;
+  --border-strong: #52504a;
+  --text: #f0eee6;
+  --muted: #a29e93;
+  --accent: #d97757;
+  --on-accent: #1f1e1d;
+  --accent-soft: #40302a;
+  --ok: #8db178;
+  /* pink-leaning so an error doesn't read as the clay accent */
+  --bad: #ff8fa3;
+  --warn: #d6b457;
+  --edge: #57544d;
+  --term-line: #8a6a5b;
+  --shadow: rgba(0, 0, 0, 0.45);
+  --series-1: #b8b5ae;
+  --series-2: #9fb08b;
+  --series-3: #c9a86e;
+  --series-4: #93a6b8;
+  --series-5: #c48d7a;
+  --series-6: #aa9cb3;
+  --chart-miss: #5f7285;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-palette="clay"]:not([data-theme]) {
+    color-scheme: dark;
+    --bg: #1f1e1d;
+    --panel: #262624;
+    --panel-2: #30302d;
+    --border: #3b3a36;
+    --border-strong: #52504a;
+    --text: #f0eee6;
+    --muted: #a29e93;
+    --accent: #d97757;
+    --on-accent: #1f1e1d;
+    --accent-soft: #40302a;
+    --ok: #8db178;
+    /* pink-leaning so an error doesn't read as the clay accent */
+    --bad: #ff8fa3;
+    --warn: #d6b457;
+    --edge: #57544d;
+    --term-line: #8a6a5b;
+    --shadow: rgba(0, 0, 0, 0.45);
+    --series-1: #b8b5ae;
+    --series-2: #9fb08b;
+    --series-3: #c9a86e;
+    --series-4: #93a6b8;
+    --series-5: #c48d7a;
+    --series-6: #aa9cb3;
     --chart-miss: #5f7285;
   }
 }
@@ -194,7 +286,7 @@ h2, h3, h4, h5 { margin: 0.4em 0; }
 .session-list .empty-hint { padding: 12px; font-size: 12.5px; }
 .session-item { display: grid; grid-template-columns: 8px 1fr; column-gap: 8px; padding: 6px 12px; cursor: pointer; border-left: 2px solid transparent; }
 .session-item:hover { background: var(--panel-2); }
-.session-item.selected { background: var(--accent-soft); border-left-color: var(--text); }
+.session-item.selected { background: var(--accent-soft); border-left-color: var(--accent); }
 .session-item .title { white-space: nowrap; overflow: hidden; display: flex; align-items: center; gap: 5px; }
 .session-item .title-text { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .session-item .small { grid-column: 2; }
@@ -296,7 +388,7 @@ h2, h3, h4, h5 { margin: 0.4em 0; }
 .notes textarea { width: 100%; font: inherit; font-size: 13px; line-height: 1.5; color: inherit; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; resize: vertical; }
 .notes textarea:focus { border-color: var(--border-strong); }
 .part.tool.flash { animation: flash 1.6s ease-out; }
-@keyframes flash { from { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--text); } to { background: transparent; box-shadow: inset 2px 0 0 transparent; } }
+@keyframes flash { from { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent); } to { background: transparent; box-shadow: inset 2px 0 0 transparent; } }
 .composer { display: flex; gap: 8px; padding: 10px 16px; border-top: 1px solid var(--border); background: var(--panel); }
 .composer input { flex: 1; }
 .follow { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 4px; white-space: nowrap; }
@@ -331,6 +423,7 @@ h2, h3, h4, h5 { margin: 0.4em 0; }
 .file-btn:hover { background: var(--panel-2); }
 .status-list li.selected .file-btn { background: var(--accent-soft); }
 
+.md { font-family: var(--prose); }
 .md p { margin: 0.3em 0; line-height: 1.55; }
 .md ul, .md ol { margin: 0.3em 0; padding-left: 1.4em; }
 .md-h { font-size: 14px; margin: 0.6em 0 0.2em; }
@@ -455,7 +548,7 @@ dd { margin: 0; word-break: break-all; }
 .kn-side h4 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin: 8px 12px 4px; }
 .kn-facet { width: 100%; display: flex; justify-content: space-between; gap: 8px; text-align: left; background: none; border: none; border-left: 2px solid transparent; border-radius: 0; padding: 4px 12px; }
 .kn-facet:hover { background: var(--panel-2); }
-.kn-facet.selected { background: var(--accent-soft); border-left-color: var(--text); }
+.kn-facet.selected { background: var(--accent-soft); border-left-color: var(--accent); }
 .kn-facet .count { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 .kn-progress { padding: 0 12px; }
 .kn-progress h4 { margin-left: 0; margin-right: 0; }
@@ -469,7 +562,7 @@ dd { margin: 0; word-break: break-all; }
 .kn-list { flex: 1; overflow: auto; padding: 4px 0; }
 .kn-row { width: 100%; display: flex; flex-direction: column; gap: 2px; text-align: left; background: none; border: none; border-left: 2px solid transparent; border-radius: 0; padding: 6px 16px 6px 14px; }
 .kn-row:hover { background: var(--panel-2); }
-.kn-row.selected { background: var(--accent-soft); border-left-color: var(--text); }
+.kn-row.selected { background: var(--accent-soft); border-left-color: var(--accent); }
 .kn-row:focus-visible { outline-offset: -2px; }
 .kn-row-top { display: flex; align-items: center; gap: 4px; min-width: 0; }
 .kn-row-top strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-right: 4px; }
@@ -568,7 +661,7 @@ dd { margin: 0; word-break: break-all; }
 .usage-table th:first-child, .usage-table td.model { text-align: left; }
 .usage-table tbody tr { cursor: pointer; }
 .usage-table tbody tr:hover { background: var(--panel-2); }
-.usage-table tbody tr.selected { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--text); }
+.usage-table tbody tr.selected { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent); }
 .usage-table td.hit .ctx-bar { display: inline-block; vertical-align: middle; width: 48px; margin-right: 6px; }
 .usage-legend { display: flex; gap: 14px; margin-bottom: 6px; }
 .usage-legend span { display: inline-flex; align-items: center; gap: 5px; }
