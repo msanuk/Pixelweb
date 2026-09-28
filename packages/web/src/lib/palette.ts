@@ -1,6 +1,6 @@
 import type { KnowledgeIndexEntry, OcSession } from '@pixelweb/shared';
 import type { Tab } from './store';
-import type { ThemeChoice } from './theme';
+import type { PaletteChoice, ThemeChoice } from './theme';
 import { displayTitle, isTeachingTitle } from './format';
 
 /*
@@ -16,6 +16,7 @@ export type PaletteAction =
   | { kind: 'session'; id: string }
   | { kind: 'card'; id: string }
   | { kind: 'theme'; theme: ThemeChoice }
+  | { kind: 'palette'; palette: PaletteChoice }
   | { kind: 'settings' }
   | { kind: 'export' }
   | { kind: 'refresh' };
@@ -33,7 +34,7 @@ export interface PaletteItem {
   teaching?: boolean;
   /** a sub-agent's session */
   child?: boolean;
-  /** theme commands: the theme in use */
+  /** theme and palette commands: the one in use */
   current?: boolean;
   action: PaletteAction;
 }
@@ -51,6 +52,8 @@ export interface PaletteData {
   /** passed in rather than imported: lib/theme touches the document on import */
   themes: { id: ThemeChoice; label: string }[];
   theme: ThemeChoice;
+  palettes: { id: PaletteChoice; label: string }[];
+  palette: PaletteChoice;
   /** there are learning records to export */
   canExport: boolean;
 }
@@ -71,8 +74,13 @@ const PAGES: { tab: Tab; title: string; keywords: string[] }[] = [
 
 const THEME_KEYWORDS: Record<ThemeChoice, string[]> = {
   system: ['auto', 'system', '系统', '自动'],
-  paper: ['light', '浅色', '亮色'],
-  graphite: ['dark', '深色', '暗色'],
+  paper: ['light', '亮色', '纸白'],
+  graphite: ['dark', '暗色', '石墨'],
+};
+
+const PALETTE_KEYWORDS: Record<PaletteChoice, string[]> = {
+  ink: ['ink', 'paper', 'mono', '黑白', '单色', '默认'],
+  clay: ['clay', 'anthropic', 'claude', '橙色', '暖色'],
 };
 
 export function buildItems(d: PaletteData): PaletteItem[] {
@@ -112,10 +120,20 @@ export function buildItems(d: PaletteData): PaletteItem[] {
     items.push({
       key: `command:theme:${t.id}`,
       group: 'command',
-      title: `切换主题：${t.label}`,
-      keywords: ['主题', 'theme', ...THEME_KEYWORDS[t.id]],
+      title: `切换明暗：${t.label}`,
+      keywords: ['明暗', '主题', 'theme', 'mode', ...THEME_KEYWORDS[t.id]],
       current: t.id === d.theme,
       action: { kind: 'theme', theme: t.id },
+    });
+  }
+  for (const p of d.palettes) {
+    items.push({
+      key: `command:palette:${p.id}`,
+      group: 'command',
+      title: `切换配色：${p.label}`,
+      keywords: ['配色', '主题', 'theme', 'palette', ...PALETTE_KEYWORDS[p.id]],
+      current: p.id === d.palette,
+      action: { kind: 'palette', palette: p.id },
     });
   }
   items.push({ key: 'command:settings', group: 'command', title: '打开设置', keywords: ['settings', 'preferences', '偏好'], action: { kind: 'settings' } });

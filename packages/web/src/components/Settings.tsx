@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../lib/store';
-import { THEMES, setTheme, useTheme } from '../lib/theme';
+import { PALETTES, THEMES, setPalette, setTheme, usePalette, useTheme } from '../lib/theme';
 import { SCALES, resetSettings, updateSettings, useSettings, type Settings as Prefs } from '../lib/settings';
 import { deliver, enableNotifications, notifyPermission, notifySupport } from '../lib/notify';
 import { Icon } from './Icon';
@@ -9,6 +9,7 @@ import { Icon } from './Icon';
 export function SettingsDialog({ onClose }: { onClose: () => void }) {
   const prefs = useSettings();
   const theme = useTheme();
+  const palette = usePalette();
   const closeRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
@@ -31,8 +32,11 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
         <div className="modal-body">
           <section>
             <h3>外观</h3>
-            <Row label="主题">
-              <Seg value={theme} options={THEMES.map((t) => [t.id, t.label])} onChange={setTheme} label="主题" />
+            <Row label="配色" hint="纸墨是黑白灰；陶土是奶油底色加陶土橙，回复正文用衬线字体">
+              <Seg value={palette} options={PALETTES.map((p) => [p.id, p.label])} onChange={setPalette} label="配色" />
+            </Row>
+            <Row label="明暗">
+              <Seg value={theme} options={THEMES.map((t) => [t.id, t.label])} onChange={setTheme} label="明暗" />
             </Row>
             <Row label="界面缩放">
               <Seg value={prefs.scale} options={SCALES.map((s) => [s, `${s}%`])} onChange={(scale) => updateSettings({ scale })} label="界面缩放" />
