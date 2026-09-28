@@ -1,6 +1,6 @@
 import React from 'react';
 import { Highlight } from './Highlight';
-import { parseBlocks } from '../lib/markdown';
+import { parseBlocks, safeHref } from '../lib/markdown';
 import { MermaidBlock } from './Mermaid';
 
 /**
@@ -84,12 +84,16 @@ function inline(text: string, highlight: boolean): React.ReactNode[] {
     if (p.startsWith('`')) return <code key={i}>{p.slice(1, -1)}</code>;
     if (p.startsWith('**')) return <strong key={i}>{highlight ? <Highlight text={p.slice(2, -2)} /> : p.slice(2, -2)}</strong>;
     const link = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(p);
-    if (link)
+    // the text is agent output: only follow web and mail links, never javascript: or data: URLs
+    if (link) {
+      const href = safeHref(link[2]);
+      if (!href) return <span key={i} title={link[2]}>{link[1]}</span>;
       return (
-        <a key={i} href={link[2]} target="_blank" rel="noreferrer">
+        <a key={i} href={href} target="_blank" rel="noreferrer">
           {link[1]}
         </a>
       );
+    }
     return highlight ? <Highlight key={i} text={p} /> : <React.Fragment key={i}>{p}</React.Fragment>;
   });
 }

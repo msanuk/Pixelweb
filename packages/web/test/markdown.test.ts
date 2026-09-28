@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseBlocks, splitRow } from '../src/lib/markdown';
+import { parseBlocks, safeHref, splitRow } from '../src/lib/markdown';
 
 describe('splitRow', () => {
   it('drops the outer pipes and trims cells', () => {
@@ -54,5 +54,18 @@ describe('parseBlocks code fences', () => {
   });
   it('marks a fence a streaming reply has not closed yet', () => {
     expect(parseBlocks('```mermaid\ngraph TD\n  A-->')).toEqual([{ kind: 'code', text: 'graph TD\n  A-->', lang: 'mermaid', closed: false }]);
+  });
+});
+
+describe('safeHref', () => {
+  it('keeps web and mail links', () => {
+    expect(safeHref(' https://opencode.ai/docs ')).toBe('https://opencode.ai/docs');
+    expect(safeHref('mailto:a@b.c')).toBe('mailto:a@b.c');
+  });
+  it('drops script, data and relative targets', () => {
+    expect(safeHref('javascript:alert(1)')).toBeNull();
+    expect(safeHref(' JavaScript:alert(1)')).toBeNull();
+    expect(safeHref('data:text/html,<script>alert(1)</script>')).toBeNull();
+    expect(safeHref('/api/sessions')).toBeNull();
   });
 });

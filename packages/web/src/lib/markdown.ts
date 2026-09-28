@@ -11,6 +11,16 @@ export type Block =
   | { kind: 'ol'; items: string[] }
   | { kind: 'table'; align: Align[]; head: string[]; rows: string[][] };
 
+/**
+ * A link target that is safe to put in `href`: http(s) or mailto only. Replies
+ * are agent output, and this page can prompt the agent and approve commands,
+ * so a `javascript:` or `data:` link must never become clickable.
+ */
+export function safeHref(href: string): string | null {
+  const h = href.trim();
+  return /^(https?:\/\/|mailto:)/i.test(h) ? h : null;
+}
+
 const DELIM_CELL = /^\s*:?-+:?\s*$/;
 
 /**
