@@ -88,6 +88,35 @@ const emit = (payload) => { const data = `data: ${JSON.stringify({ directory: di
 const json = (res, code, body) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(body)); };
 let counter = 10;
 const pendingPermissions = new Map(); // requestID -> { request, resume(reply) }
+
+// A session that loads a skill, then runs the same failing command three times, so opencode
+// is waiting on a doom_loop permission.
+{
+  const T = now() - 5 * 60000;
+  const id = 'ses_5';
+  const call = (pid, tool, input, output, title, at) => ({ id: pid, sessionID: id, messageID: 'm52', type: 'tool', callID: pid, tool, state: { status: 'completed', input, output, title, metadata: {}, time: { start: at, end: at + 4000 } } });
+  const test = (pid, at) => call(pid, 'bash', { command: 'npm test -w server', description: 'Run server tests' }, 'FAIL test/db.test.ts\n  connect ECONNREFUSED 127.0.0.1:5432\nTests: 1 failed, 102 passed', 'Run server tests', at);
+  const am = { id: 'm52', sessionID: id, role: 'assistant', time: { created: T + 1000 }, parentID: 'm51', modelID: 'claude-sonnet-4', providerID: 'anthropic', mode: 'build', cost: 0.02, tokens: { input: 900, output: 200, reasoning: 0, cache: { read: 0, write: 0 } } };
+  sessions.push({ id, projectID: 'p', directory: dir, title: '修好失败的测试（打转示例）', version: '1', time: { created: T, updated: T + 60000 } });
+  messages[id] = [
+    { info: { id: 'm51', sessionID: id, role: 'user', time: { created: T }, agent: 'build', model: { providerID: 'anthropic', modelID: 'claude-sonnet-4' } },
+      parts: [{ id: 'p51', sessionID: id, messageID: 'm51', type: 'text', text: '服务端测试挂了一个，帮我修好。' }] },
+    { info: am, parts: [
+      call('p52', 'skill', { name: 'debug-tests' }, '<skill_content name="debug-tests">\n# Skill: debug-tests\n\n先单独重跑失败的用例，读完整报错再改代码……\n</skill_content>', 'Loaded skill: debug-tests', T + 3000),
+      test('p53', T + 10000), test('p54', T + 20000), test('p55', T + 30000),
+    ] },
+  ];
+  pendingPermissions.set('per_doom', {
+    request: { id: 'per_doom', sessionID: id, permission: 'doom_loop', patterns: ['bash'], metadata: { tool: 'bash', input: { command: 'npm test -w server' } }, always: ['bash'], tool: { messageID: 'm52', callID: 'p55' } },
+    resume: (reply) => {
+      const part = { id: 'p56', sessionID: id, messageID: 'm52', type: 'text', text: reply === 'reject' ? '好，不再重跑。数据库没启动（5432 连不上），先把它起起来再测。' : '再跑一次 npm test -w server……' };
+      messages[id][1].parts.push(part);
+      am.time.completed = now();
+      emit({ type: 'message.part.updated', properties: { part } });
+      emit({ type: 'message.updated', properties: { info: am } });
+    },
+  });
+}
 const readBody = (req) => new Promise((r) => { let b = ''; req.on('data', (c) => (b += c)); req.on('end', () => r(JSON.parse(b || '{}'))); });
 http.createServer((req, res) => {
   const u = new URL(req.url, 'http://x');

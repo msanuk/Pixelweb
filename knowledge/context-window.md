@@ -6,7 +6,7 @@ keywords: [上下文, context]
 category: ai
 level: 1
 summary: 模型一次能「看见」的 token 上限；超出的历史要么被压缩，要么被丢掉。
-related: [token, compaction, system-prompt]
+related: [token, compaction, system-prompt, context-rot, context-engineering]
 appearsIn: [timeline.compaction, timeline.part.step-finish]
 quiz:
   - q: 上下文快满时 OpenCode 通常会做什么？
@@ -14,9 +14,10 @@ quiz:
     answer: 1
 sources:
   - { title: "Anthropic: Context windows", url: https://docs.anthropic.com/en/docs/build-with-claude/context-windows }
+  - { title: "李博杰《深入理解 AI Agent》第 2 章", url: https://github.com/bojieli/ai-agent-book }
 ---
 ## 为什么重要
-agent 不是「记得」项目，而是每一步都把相关内容重新塞进窗口。窗口越满，越贵、越慢、越容易忘掉早先的约定。
+agent 不是「记得」项目，而是每一步都把相关内容重新塞进窗口。窗口越满，越贵、越慢、越容易忘掉早先的约定；还没满也可能「找不到」，见上下文腐化。
 
 ## 在 PixelWeb 里出现在哪
 时间线里出现 `compaction` 节点，就说明窗口逼近上限，OpenCode 把前文总结成了一段摘要。
