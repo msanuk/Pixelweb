@@ -18,6 +18,8 @@ export interface PixelwebConfig {
   dataDir: string;
   /** Print raw opencode events to stdout. */
   verbose: boolean;
+  /** Rename the project's sessions to "yyyymmdd-<title>" once OpenCode has titled them (--no-title-date turns it off). */
+  titleDate: boolean;
 }
 
 function flag(argv: string[], name: string): string | undefined {
@@ -39,6 +41,7 @@ export function loadConfig(argv = process.argv.slice(2), env = process.env): Pix
     projectRoot,
     dataDir: flag(argv, 'data-dir') ?? env.PIXELWEB_DATA_DIR ?? path.join(os.homedir(), '.pixelweb'),
     verbose: argv.includes('--verbose') || env.PIXELWEB_VERBOSE === '1',
+    titleDate: !argv.includes('--no-title-date') && env.PIXELWEB_TITLE_DATE !== '0',
   };
 }
 
@@ -56,5 +59,6 @@ Usage: pixelweb [options]
   --host <addr>             PixelWeb bind address (default 127.0.0.1; set --password before exposing it)
   --data-dir <dir>          learning records location (default ~/.pixelweb)
   --verbose                 log every opencode event
+  --no-title-date           don't prefix session titles with their date (env PIXELWEB_TITLE_DATE=0)
 `);
 }

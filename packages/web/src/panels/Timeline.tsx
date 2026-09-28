@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { OcMessageWithParts, OcPart, OcPermission, PermissionResponse } from '@pixelweb/shared';
 import { api } from '../lib/api';
-import { explain, getState, loadMessages, openCard, setState, showCommit, showInArch, toast, useStore } from '../lib/store';
+import { explain, getState, loadMessages, openCard, selectSession, setState, showCommit, showInArch, toast, useStore } from '../lib/store';
+import { subagentTitle } from '../lib/sessions';
 import { displayTitle, fmtDuration, fmtNum, fmtTime } from '../lib/format';
 import { Markdown } from '../components/Markdown';
 import { Highlight } from '../components/Highlight';
+import { Icon } from '../components/Icon';
 import { DiffStat, DiffView } from '../components/DiffView';
 import { lineDiff, parseUnified, type Diff } from '../lib/diff';
 import { toProjectPath, toolFiles } from '../lib/activity';
@@ -12,7 +14,7 @@ import { contextUsage } from '../lib/context';
 import { analyzeCache, breakReasons, type SessionCache, type StepCache } from '../lib/cache';
 import { cardForTool } from '../lib/tools';
 import { summarizeSession } from '../lib/summary';
-import { sessionTokens } from '../lib/usage';
+import { sessionTokens } from '../lib/tokens';
 import { buildMatcher } from '../lib/terms';
 
 
@@ -79,8 +81,10 @@ export function Timeline() {
     <div className="timeline">
       <header className="timeline-head">
         <div>
+          {session?.parentID && <ParentCrumb parentID={session.parentID} title={session.title} />}
           <h3>
-            {isTeaching && <span className="chip teach">教学</span>} {session ? displayTitle(session.title) : sessionID}
+            {isTeaching && <span className="chip teach">教学</span>}{' '}
+            {session ? <SessionTitle id={session.id} title={session.title} renamable={!session.parentID && !isTeaching} /> : sessionID}
           </h3>
           <div className="meta">
             <span className={`dot ${status === 'busy' ? 'busy' : status === 'retry' ? 'retry' : ''}`} />
@@ -162,6 +166,87 @@ export function Timeline() {
           发送
         </button>
       </form>
+    </div>
+  );
+}
+
+/**
+ * The session's title, renamed in place (the edit button or a double-click).
+ * The server writes it back to OpenCode, adding the date prefix of the naming convention.
+ */
+function SessionTitle({ id, title, renamable }: { id: string; title: string; renamable: boolean }) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const shown = subagentTitle(title)?.title ?? displayTitle(title);
+  useEffect(() => setDraft(null), [id]);
+
+  const save = async () => {
+    const next = draft?.trim();
+    if (!next || next === title) return setDraft(null);
+    setBusy(true);
+    try {
+      const s = await api.renameSession(id, next);
+      setState((st) => ({ sessions: st.sessions.map((x) => (x.id === s.id ? s : x)) }));
+      setDraft(null);
+    } catch (e) {
+      toast(`改名失败：${e instanceof Error ? e.message : e}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (draft !== null) {
+    return (
+      <form
+        className="title-edit"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void save();
+        }}
+      >
+        <input
+          autoFocus
+          onFocus={(e) => e.currentTarget.select()}
+          value={draft}
+          disabled={busy}
+          maxLength={60}
+          aria-label="会话标题"
+          placeholder="动词 + 对象，例如：修复登录跳转"
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => e.key === 'Escape' && setDraft(null)}
+          onBlur={() => !busy && setDraft(null)}
+        />
+        <span className="muted small">回车保存 · 日期前缀会自动加上</span>
+      </form>
+    );
+  }
+  if (!renamable) return <>{shown}</>;
+  // untitled sessions start the draft empty rather than with OpenCode's placeholder
+  const start = () => setDraft(shown === title ? title.replace(/^\d{8}-/, '') : '');
+  return (
+    <span className="session-title" onDoubleClick={start}>
+      {shown}
+      <button className="icon-btn" onClick={start} title="改名（格式：yyyymmdd-动词对象）" aria-label="给会话改名">
+        <Icon name="edit" size={13} />
+      </button>
+    </span>
+  );
+}
+
+/** Above a subtask's title: which session started it, one click back. */
+function ParentCrumb({ parentID, title }: { parentID: string; title: string }) {
+  const parent = useStore((s) => s.sessions.find((x) => x.id === parentID));
+  const agent = subagentTitle(title)?.agent;
+  return (
+    <div className="parent-crumb">
+      <button className="term" onClick={() => openCard('tool-task', `子任务「${title}」由会话「${parent?.title ?? parentID}」通过 task 工具启动`)}>
+        子任务
+      </button>
+      {agent && <span className="agent-chip mono">@{agent}</span>}
+      <span className="muted">来自</span>
+      <button className="link-btn" onClick={() => void selectSession(parentID)} title="回到启动这个子任务的会话">
+        {parent ? displayTitle(parent.title) : parentID}
+      </button>
     </div>
   );
 }
@@ -534,6 +619,8 @@ function ToolPart({ p, sessionTitle }: { p: Extract<OcPart, { type: 'tool' }>; s
     [p, root],
   );
   const commit = useStore((s) => s.commitLinks.find((l) => l.partID === p.id));
+  // the task tool records the subtask session it started in its metadata, from the moment it runs
+  const child = p.tool === 'task' ? taskChild(p) : null;
   const focused = useStore((s) => s.partFocus === p.id);
   const ref = useRef<HTMLDivElement>(null);
   const [flash, setFlash] = useState(false);
@@ -568,7 +655,20 @@ function ToolPart({ p, sessionTitle }: { p: Extract<OcPart, { type: 'tool' }>; s
         >
           {p.tool}
         </button>
+        {child?.agent && <span className="agent-chip mono">@{child.agent}</span>}
         <span className="tool-title">{title ?? summariseInput(p.tool, st.input)}</span>
+        {child?.sessionID && (
+          <button
+            className="chip"
+            onClick={(e) => {
+              e.stopPropagation();
+              void selectSession(child.sessionID!);
+            }}
+            title="打开这个子任务的会话"
+          >
+            打开子任务 ↗
+          </button>
+        )}
         {diff && (diff.additions > 0 || diff.deletions > 0) && <DiffStat diff={diff} />}
         {commit?.hash && (
           <button
@@ -634,6 +734,15 @@ function ToolPart({ p, sessionTitle }: { p: Extract<OcPart, { type: 'tool' }>; s
       )}
     </div>
   );
+}
+
+function taskChild(p: Extract<OcPart, { type: 'tool' }>): { agent?: string; sessionID?: string } {
+  const meta = (p.state as { metadata?: Record<string, unknown> }).metadata;
+  const agent = p.state.input.subagent_type;
+  return {
+    agent: typeof agent === 'string' ? agent : undefined,
+    sessionID: typeof meta?.sessionId === 'string' ? meta.sessionId : undefined,
+  };
 }
 
 /** File-changing tools get a diff: opencode's own unified diff when present, else one computed from the input. */

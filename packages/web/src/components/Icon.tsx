@@ -1,5 +1,13 @@
 /** Minimal inline stroke icons (paths adapted from Lucide, ISC licence) — no icon dependency. */
 const PATHS = {
+  chart: (
+    <>
+      <line x1="18" y1="20" x2="18" y2="10" />
+      <line x1="12" y1="20" x2="12" y2="4" />
+      <line x1="6" y1="20" x2="6" y2="14" />
+    </>
+  ),
+  edit: <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />,
   timeline: <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />,
   git: (
     <>
