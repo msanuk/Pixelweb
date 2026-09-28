@@ -12,7 +12,9 @@ const nested = (a, b) => a === b || a.startsWith(b + path.sep);
 const inDir = (d) => !d || nested(path.resolve(d), dir) || nested(dir, path.resolve(d));
 const sessions = [
   { id: 'ses_1', projectID: 'p', directory: dir, title: '修复登录页 bug', version: '1', time: { created: now() - 60000, updated: now() - 1000 }, summary: { additions: 12, deletions: 3, files: 2 } },
-  { id: 'ses_2', projectID: 'p', directory: dir, parentID: 'ses_1', title: '子任务：搜索相关文件', version: '1', time: { created: now() - 50000, updated: now() - 20000 } },
+  // subtasks started by ses_1's task calls, titled the way opencode titles them
+  { id: 'ses_2', projectID: 'p', directory: dir, parentID: 'ses_1', title: '搜索处理 token 过期的代码 (@explore subagent)', version: '1', time: { created: now() - 58500, updated: now() - 57200 } },
+  { id: 'ses_2b', projectID: 'p', directory: dir, parentID: 'ses_1', title: '检查路由守卫的调用方 (@general subagent)', version: '1', time: { created: now() - 57000, updated: now() - 56200 } },
 ];
 const messages = {
   ses_1: [
@@ -22,6 +24,8 @@ const messages = {
       parts: [
         { id: 'p2', sessionID: 'ses_1', messageID: 'm2', type: 'step-start' },
         { id: 'p3', sessionID: 'ses_1', messageID: 'm2', type: 'reasoning', text: '先用 grep 找到处理 token 过期的地方，再看 webhook 回调。', time: { start: 1, end: 2 } },
+        { id: 'p3a', sessionID: 'ses_1', messageID: 'm2', type: 'tool', callID: 'c0', tool: 'task', state: { status: 'completed', input: { description: '搜索处理 token 过期的代码', prompt: '找出所有处理 token 过期的地方', subagent_type: 'explore' }, output: 'src/auth.ts:42', title: '搜索处理 token 过期的代码', metadata: { parentSessionId: 'ses_1', sessionId: 'ses_2', model: { providerID: 'anthropic', modelID: 'claude-sonnet-4' } }, time: { start: now() - 58500, end: now() - 57200 } } },
+        { id: 'p3b', sessionID: 'ses_1', messageID: 'm2', type: 'tool', callID: 'c0b', tool: 'task', state: { status: 'completed', input: { description: '检查路由守卫的调用方', prompt: '看看 guard() 被谁调用', subagent_type: 'general' }, output: 'src/router.ts', title: '检查路由守卫的调用方', metadata: { parentSessionId: 'ses_1', sessionId: 'ses_2b', model: { providerID: 'anthropic', modelID: 'claude-sonnet-4' } }, time: { start: now() - 57000, end: now() - 56200 } } },
         { id: 'p4', sessionID: 'ses_1', messageID: 'm2', type: 'tool', callID: 'c1', tool: 'grep', state: { status: 'completed', input: { pattern: 'tokenExpired', path: 'src' }, output: 'src/auth.ts:42: if (tokenExpired) {', title: 'grep tokenExpired', metadata: {}, time: { start: now() - 58000, end: now() - 57000 } } },
         { id: 'p5', sessionID: 'ses_1', messageID: 'm2', type: 'tool', callID: 'c2', tool: 'edit', state: { status: 'completed', input: { filePath: 'src/auth.ts', oldString: 'if (tokenExpired) {', newString: 'if (tokenExpired) { router.push("/login");' }, output: 'ok', title: 'edit src/auth.ts', metadata: {}, time: { start: now() - 56000, end: now() - 55000 } } },
         { id: 'p5b', sessionID: 'ses_1', messageID: 'm2', type: 'tool', callID: 'c2b', tool: 'edit', state: { status: 'completed', input: { filePath: 'src/router.ts', oldString: '', newString: '' }, output: 'ok', title: 'edit src/router.ts', metadata: { diff: 'Index: src/router.ts\n===================================================================\n--- src/router.ts\n+++ src/router.ts\n@@ -10,7 +10,9 @@\n export function guard(to: Route) {\n-  if (!session.valid) return;\n+  if (!session.valid) {\n+    return redirect(\'/login\');\n+  }\n   return next(to);\n }\n' }, time: { start: now() - 55500, end: now() - 55200 } } },
@@ -31,6 +35,7 @@ const messages = {
       ] },
   ],
   ses_2: [],
+  ses_2b: [],
 };
 
 // A session whose prompt cache hits, then breaks twice: after an idle gap and after switching agent.

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { OcMessageWithParts, OcPart, OcPermission, PermissionResponse } from '@pixelweb/shared';
 import { api } from '../lib/api';
-import { explain, getState, loadMessages, openCard, setState, showCommit, showInArch, toast, useStore } from '../lib/store';
+import { explain, getState, loadMessages, openCard, selectSession, setState, showCommit, showInArch, toast, useStore } from '../lib/store';
+import { subagentTitle } from '../lib/sessions';
 import { displayTitle, fmtDuration, fmtNum, fmtTime } from '../lib/format';
 import { Markdown } from '../components/Markdown';
 import { Highlight } from '../components/Highlight';
@@ -88,8 +89,9 @@ export function Timeline() {
     <div className="timeline">
       <header className="timeline-head">
         <div>
+          {session?.parentID && <ParentCrumb parentID={session.parentID} title={session.title} />}
           <h3>
-            {isTeaching && <span className="chip teach">教学</span>} {session ? displayTitle(session.title) : sessionID}
+            {isTeaching && <span className="chip teach">教学</span>} {session ? (subagentTitle(session.title)?.title ?? displayTitle(session.title)) : sessionID}
           </h3>
           <div className="meta">
             <span className={`dot ${status === 'busy' ? 'busy' : status === 'retry' ? 'retry' : ''}`} />
@@ -171,6 +173,24 @@ export function Timeline() {
           发送
         </button>
       </form>
+    </div>
+  );
+}
+
+/** Above a subtask's title: which session started it, one click back. */
+function ParentCrumb({ parentID, title }: { parentID: string; title: string }) {
+  const parent = useStore((s) => s.sessions.find((x) => x.id === parentID));
+  const agent = subagentTitle(title)?.agent;
+  return (
+    <div className="parent-crumb">
+      <button className="term" onClick={() => openCard('tool-task', `子任务「${title}」由会话「${parent?.title ?? parentID}」通过 task 工具启动`)}>
+        子任务
+      </button>
+      {agent && <span className="agent-chip mono">@{agent}</span>}
+      <span className="muted">来自</span>
+      <button className="link-btn" onClick={() => void selectSession(parentID)} title="回到启动这个子任务的会话">
+        {parent ? displayTitle(parent.title) : parentID}
+      </button>
     </div>
   );
 }
@@ -538,6 +558,8 @@ function ToolPart({ p, sessionTitle }: { p: Extract<OcPart, { type: 'tool' }>; s
     [p, root],
   );
   const commit = useStore((s) => s.commitLinks.find((l) => l.partID === p.id));
+  // the task tool records the subtask session it started in its metadata, from the moment it runs
+  const child = p.tool === 'task' ? taskChild(p) : null;
   const focused = useStore((s) => s.partFocus === p.id);
   const ref = useRef<HTMLDivElement>(null);
   const [flash, setFlash] = useState(false);
@@ -572,7 +594,20 @@ function ToolPart({ p, sessionTitle }: { p: Extract<OcPart, { type: 'tool' }>; s
         >
           {p.tool}
         </button>
+        {child?.agent && <span className="agent-chip mono">@{child.agent}</span>}
         <span className="tool-title">{title ?? summariseInput(p.tool, st.input)}</span>
+        {child?.sessionID && (
+          <button
+            className="chip"
+            onClick={(e) => {
+              e.stopPropagation();
+              void selectSession(child.sessionID!);
+            }}
+            title="打开这个子任务的会话"
+          >
+            打开子任务 ↗
+          </button>
+        )}
         {diff && (diff.additions > 0 || diff.deletions > 0) && <DiffStat diff={diff} />}
         {commit?.hash && (
           <button
@@ -638,6 +673,15 @@ function ToolPart({ p, sessionTitle }: { p: Extract<OcPart, { type: 'tool' }>; s
       )}
     </div>
   );
+}
+
+function taskChild(p: Extract<OcPart, { type: 'tool' }>): { agent?: string; sessionID?: string } {
+  const meta = (p.state as { metadata?: Record<string, unknown> }).metadata;
+  const agent = p.state.input.subagent_type;
+  return {
+    agent: typeof agent === 'string' ? agent : undefined,
+    sessionID: typeof meta?.sessionId === 'string' ? meta.sessionId : undefined,
+  };
 }
 
 /** File-changing tools get a diff: opencode's own unified diff when present, else one computed from the input. */

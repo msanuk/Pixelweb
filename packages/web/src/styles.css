@@ -188,8 +188,23 @@ h2, h3, h4, h5 { margin: 0.4em 0; }
 .session-item { display: grid; grid-template-columns: 8px 1fr; column-gap: 8px; padding: 6px 12px; cursor: pointer; border-left: 2px solid transparent; }
 .session-item:hover { background: var(--panel-2); }
 .session-item.selected { background: var(--accent-soft); border-left-color: var(--text); }
-.session-item .title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 5px; }
+.session-item .title { white-space: nowrap; overflow: hidden; display: flex; align-items: center; gap: 5px; }
+.session-item .title-text { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .session-item .small { grid-column: 2; }
+/* subtasks hang off their parent on a guide line: smaller, quieter, tagged with the subagent */
+.session-list li.root + li.root { border-top: 1px solid var(--border); }
+.session-item:not(.sub) .title-text { font-weight: 500; }
+.subtasks { list-style: none; margin: 0 0 6px 16px; padding: 0; border-left: 1px solid var(--border-strong); }
+.subtasks .subtasks { margin-left: 10px; margin-bottom: 2px; }
+.session-item.sub { padding: 4px 10px 4px 8px; font-size: 12.5px; column-gap: 6px; }
+.session-item.sub .title-text { color: var(--muted); }
+.session-item.sub:hover .title-text, .session-item.sub.selected .title-text { color: var(--text); }
+.session-item.sub .dot { width: 6px; height: 6px; margin-top: 6px; }
+.session-item.sub .small { font-size: 11px; }
+.session-item .small .agent-chip { display: inline-block; margin-right: 5px; font-size: 10px; line-height: 14px; }
+.agent-chip { flex-shrink: 0; font-size: 10.5px; line-height: 15px; padding: 0 4px; border: 1px solid var(--border-strong); border-radius: 3px; color: var(--muted); background: var(--panel); }
+.subtask-toggle { background: none; border: none; padding: 0 2px; margin-left: 6px; font: inherit; color: var(--muted); cursor: pointer; display: inline-flex; align-items: center; gap: 2px; vertical-align: -1px; }
+.subtask-toggle:hover { color: var(--text); background: var(--panel-2); }
 .teach-mark { color: var(--muted); display: inline-flex; }
 .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--border-strong); margin-top: 6px; }
 .dot.busy, .dot.running { background: var(--accent); animation: pulse 1s infinite; }
@@ -206,6 +221,8 @@ h2, h3, h4, h5 { margin: 0.4em 0; }
 /* timeline: one row per event, boxes only for the user's prompt */
 .timeline { display: flex; flex-direction: column; height: 100%; }
 .timeline-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 16px; border-bottom: 1px solid var(--border); background: var(--panel); }
+.parent-crumb { display: flex; align-items: center; gap: 6px; font-size: 12px; margin-bottom: 2px; min-width: 0; }
+.parent-crumb .link-btn { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 40ch; }
 .timeline-head h3 { margin: 0 0 2px; font-size: 15px; }
 .timeline-head .meta { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 /* context meter: ink fill, a tick where OpenCode compacts, amber once close to it */
@@ -252,6 +269,7 @@ h2, h3, h4, h5 { margin: 0.4em 0; }
 [data-density="compact"] .part.text p { margin: 0.3em 0; }
 [data-density="compact"] .tool-head { padding: 1px 8px; min-height: 22px; }
 [data-density="compact"] .session-item { padding: 3px 12px; }
+[data-density="compact"] .session-item.sub { padding: 2px 10px 2px 8px; }
 /* session recap under an idle timeline */
 .recap { border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; background: var(--panel); font-size: 13px; }
 .recap > summary { cursor: pointer; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
