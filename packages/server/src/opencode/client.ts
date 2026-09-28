@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import type { OcEvent, OcMessageWithParts, OcModelLimit, OcSession, PermissionResponse } from '@pixelweb/shared';
+import type { OcEvent, OcMessageWithParts, OcModelLimit, OcPermissionRule, OcSession, PermissionResponse } from '@pixelweb/shared';
 import type { OcProject } from '../project.js';
 
 /** A non-2xx answer from OpenCode; `status` lets callers fall back between API versions. */
@@ -130,7 +130,7 @@ export class OpencodeClient extends EventEmitter {
     return this.json(`session/${encodeURIComponent(id)}/message`);
   }
 
-  createSession(body: { title?: string; parentID?: string }): Promise<OcSession> {
+  createSession(body: { title?: string; parentID?: string; permission?: OcPermissionRule[] }): Promise<OcSession> {
     return this.json('session', { method: 'POST', body: JSON.stringify(body) });
   }
 

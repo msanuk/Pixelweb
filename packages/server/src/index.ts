@@ -19,7 +19,7 @@ import { analyseProject } from './analysis/deps.js';
 import { KnowledgeStore } from './knowledge/store.js';
 import { LearningStore } from './knowledge/learning.js';
 import { belongsTo, samePath, toProjectOptions } from './project.js';
-import { TEACHING_SYSTEM_PROMPT, TEACHING_TOOLS, buildExplainPrompt, teachingSessionTitle } from './knowledge/explain.js';
+import { TEACHING_PERMISSION, TEACHING_SYSTEM_PROMPT, buildExplainPrompt, teachingSessionTitle } from './knowledge/explain.js';
 
 const VERSION = '0.1.0';
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -264,7 +264,7 @@ async function main(): Promise<void> {
       await opencode.promptAsync(req.params.id, {
         ...inherited,
         parts: [{ type: 'text', text }],
-        ...(teachingSessions.has(req.params.id) ? { system: TEACHING_SYSTEM_PROMPT, tools: TEACHING_TOOLS } : {}),
+        ...(teachingSessions.has(req.params.id) ? { system: TEACHING_SYSTEM_PROMPT } : {}),
       });
       return { ok: true };
     } catch (e) {
@@ -352,12 +352,11 @@ async function main(): Promise<void> {
     if (!body.term?.trim()) return reply.code(400).send({ error: 'term required' });
     const card = body.cardId ? knowledge.get(body.cardId) : knowledge.find(body.term);
     try {
-      const session = await opencode.createSession({ title: teachingSessionTitle(body.term) });
+      const session = await opencode.createSession({ title: teachingSessionTitle(body.term), permission: TEACHING_PERMISSION });
       teachingSessions.add(session.id);
       await opencode.promptAsync(session.id, {
         parts: [{ type: 'text', text: buildExplainPrompt(body, card, cfg.projectRoot) }],
         system: TEACHING_SYSTEM_PROMPT,
-        tools: TEACHING_TOOLS,
         ...(body.model ? { model: body.model } : {}),
       });
       if (card) void learning.markSeen(card.id).then(broadcastLearning);
