@@ -6,9 +6,10 @@ import Fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
 import websocket from '@fastify/websocket';
 import os from 'node:os';
-import type { ClientMessage, CommitLink, ExplainRequest, ExplainResponse, ModelInfo, OcPart, OcSession, PermissionResponse, ProjectOption, ServerInfo, ServerMessage } from '@pixelweb/shared';
+import type { ClientMessage, CommitLink, ExplainRequest, ExplainResponse, ModelInfo, OcPart, OcSession, OpencodeConnection, PermissionResponse, ProjectOption, ServerInfo, ServerMessage } from '@pixelweb/shared';
 import { loadConfig, printUsage } from './config.js';
 import { OpencodeClient, type GlobalEvent } from './opencode/client.js';
+import { resolveAddress } from './opencode/address.js';
 import { toModelInfo } from './opencode/models.js';
 import { followUpSettings } from './opencode/followup.js';
 import { TITLE_MAX, applyConvention, conventionalTitle } from './opencode/naming.js';
@@ -218,6 +219,41 @@ async function main(): Promise<void> {
     opencodeConnected: opencode.isConnected,
     teachingSessions: [...teachingSessions],
   }));
+
+  // -- where opencode is: changeable from 设置 (it came back on another port, or the password changed); not saved
+  const connection = (): OpencodeConnection => ({
+    url: cfg.opencodeUrl,
+    username: cfg.opencodeUsername,
+    hasPassword: !!cfg.opencodePassword,
+    connected: opencode.isConnected,
+  });
+  app.get('/api/opencode', async () => connection());
+  // no fields = retry now; `password` left out keeps the current one, '' clears it
+  app.post<{ Body: { url?: string; username?: string; password?: string } }>('/api/opencode', async (req, reply) => {
+    const body = req.body ?? {};
+    let url = cfg.opencodeUrl;
+    if (typeof body.url === 'string') {
+      const r = resolveAddress(body.url, cfg.opencodeUrl);
+      if ('error' in r) return reply.code(400).send({ error: r.error });
+      url = r.url;
+    }
+    const otherServer = url !== cfg.opencodeUrl;
+    cfg.opencodeUrl = url;
+    if (typeof body.username === 'string') cfg.opencodeUsername = body.username.trim() || 'opencode';
+    if (typeof body.password === 'string') cfg.opencodePassword = body.password || undefined;
+    if (otherServer) {
+      // its sessions and models may not be the ones we had; commits get re-linked by the backfill on connect
+      modelsCache = null;
+      commitIndex = new CommitIndex();
+      commitLinks = [];
+      hub.broadcast(hello());
+      hub.broadcast({ type: 'activity.commits', links: commitLinks });
+      console.log(`[pixelweb] opencode address: ${url}`);
+    }
+    const outcome = opencode.nextOutcome(8000);
+    opencode.configure({ baseUrl: cfg.opencodeUrl, username: cfg.opencodeUsername, password: cfg.opencodePassword });
+    return { ...connection(), ...(await outcome) };
+  });
 
   // -- opencode proxy (the UI never talks to opencode directly: one origin, one auth)
   app.get('/api/sessions', async (_req, reply) => {

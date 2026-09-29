@@ -601,6 +601,9 @@ dd { margin: 0; word-break: break-all; }
 .settings-dl { display: grid; grid-template-columns: 90px 1fr; gap: 4px 12px; margin: 0; font-size: 13px; }
 .settings-dl dt { color: var(--muted); }
 .settings-dl dd { margin: 0; overflow-wrap: anywhere; }
+.settings-dl input { width: 100%; }
+.settings-dl dt label { display: inline-block; padding-top: 6px; }
+.conn-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 8px 14px; border-radius: 8px; box-shadow: 0 8px 24px var(--shadow); font-size: 13px; z-index: 50; max-width: 80vw; }
 
 @media (max-width: 900px) {

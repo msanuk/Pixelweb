@@ -33,7 +33,8 @@ export function App() {
   const tab = useStore((s) => s.tab);
   const toast = useStore((s) => s.toast);
   const needLogin = useStore((s) => s.needLogin);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  // 'connection': opened from the disconnected badge, straight to the OpenCode address
+  const [settingsOpen, setSettingsOpen] = useState<boolean | 'connection'>(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
 
   // the two dialogs never stack: opening one closes the other
@@ -57,7 +58,7 @@ export function App() {
   if (needLogin) return <Login />;
   return (
     <div className="app">
-      <TopBar onOpenPalette={() => setPaletteOpen(true)} />
+      <TopBar onOpenPalette={() => setPaletteOpen(true)} onOpenSettings={() => setSettingsOpen('connection')} />
       <div className="main">
         <NavRail onSettings={() => setSettingsOpen(true)} />
         {tab === 'timeline' && <SessionList />}
@@ -71,7 +72,7 @@ export function App() {
         <CardDrawer />
       </div>
       {toast && <div className="toast">{toast}</div>}
-      {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
+      {settingsOpen && <SettingsDialog focusConnection={settingsOpen === 'connection'} onClose={() => setSettingsOpen(false)} />}
       {paletteOpen && <CommandPalette onClose={() => setPaletteOpen(false)} onOpenSettings={() => setSettingsOpen(true)} />}
     </div>
   );
@@ -157,7 +158,7 @@ function Login() {
   );
 }
 
-function TopBar({ onOpenPalette }: { onOpenPalette: () => void }) {
+function TopBar({ onOpenPalette, onOpenSettings }: { onOpenPalette: () => void; onOpenSettings: () => void }) {
   const git = useStore((s) => s.git);
   const server = useStore((s) => s.server);
 
@@ -187,7 +188,7 @@ function TopBar({ onOpenPalette }: { onOpenPalette: () => void }) {
           </>
         )}
       </nav>
-      <ConnectionStatus />
+      <ConnectionStatus onOpenSettings={onOpenSettings} />
       <ThemeSwitch />
       <PaletteTrigger onOpen={onOpenPalette} />
     </header>
@@ -195,7 +196,7 @@ function TopBar({ onOpenPalette }: { onOpenPalette: () => void }) {
 }
 
 /** Quiet when everything is connected; spells out what's wrong when it isn't. */
-function ConnectionStatus() {
+function ConnectionStatus({ onOpenSettings }: { onOpenSettings: () => void }) {
   const ws = useStore((s) => s.wsConnected);
   const oc = useStore((s) => s.opencodeConnected);
   const ocErr = useStore((s) => s.opencodeError);
@@ -218,6 +219,11 @@ function ConnectionStatus() {
             OpenCode
           </button>
           {oc ? '' : ` 未连接${server ? `（${server.opencodeUrl}）` : ''}`}
+          {!oc && (
+            <button className="link-btn" onClick={onOpenSettings} title="改 OpenCode 地址或立即重试">
+              设置
+            </button>
+          )}
         </>
       )}
     </span>

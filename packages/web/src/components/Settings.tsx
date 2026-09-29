@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
+import type { OpencodeConnection } from '@pixelweb/shared';
+import { api } from '../lib/api';
 import { useStore } from '../lib/store';
 import { PALETTES, THEMES, setPalette, setTheme, usePalette, useTheme } from '../lib/theme';
 import { SCALES, resetSettings, updateSettings, useSettings, type Settings as Prefs } from '../lib/settings';
 import { deliver, enableNotifications, notifyPermission, notifySupport } from '../lib/notify';
 import { Icon } from './Icon';
 
-/** Per-browser preferences. Server-side settings (project, OpenCode URL, password) are start-up flags, shown read-only. */
-export function SettingsDialog({ onClose }: { onClose: () => void }) {
+/** Per-browser preferences, plus the server's OpenCode connection (changeable for this run; project and password are shown read-only). */
+export function SettingsDialog({ onClose, focusConnection = false }: { onClose: () => void; focusConnection?: boolean }) {
   const prefs = useSettings();
   const theme = useTheme();
   const palette = usePalette();
@@ -62,7 +64,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
           </section>
 
           <NotifySection prefs={prefs} />
-          <ConnectionSection />
+          <ConnectionSection focus={focusConnection} />
         </div>
 
         <footer className="modal-foot">
@@ -146,27 +148,113 @@ function NotifySection({ prefs }: { prefs: Prefs }) {
   );
 }
 
-function ConnectionSection() {
+function ConnectionSection({ focus }: { focus: boolean }) {
   const server = useStore((s) => s.server);
   const oc = useStore((s) => s.opencodeConnected);
+  const ocError = useStore((s) => s.opencodeError);
   const authRequired = useStore((s) => s.authRequired);
+  const [conn, setConn] = useState<OpencodeConnection | null>(null);
+  const [url, setUrl] = useState('');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const urlRef = useRef<HTMLInputElement>(null);
+  const focused = useRef(false);
+
+  const show = (c: OpencodeConnection) => {
+    setConn(c);
+    setUrl(c.url);
+    setUsername(c.username);
+    setPassword('');
+  };
+  // again when another tab changes the address (every tab gets the new `hello`)
+  useEffect(() => {
+    api.opencode().then(show).catch(() => {});
+  }, [server?.opencodeUrl]);
+  useEffect(() => {
+    if (!focus || !conn || focused.current || !urlRef.current) return;
+    focused.current = true;
+    urlRef.current.scrollIntoView({ block: 'center' });
+    urlRef.current.focus();
+    urlRef.current.select();
+  }, [focus, conn]);
+
+  const dirty = !!conn && (url.trim() !== conn.url || username.trim() !== conn.username || password !== '');
+  const connect = async (changes: Parameters<typeof api.connectOpencode>[0]) => {
+    setBusy(true);
+    setFormError(null);
+    try {
+      show(await api.connectOpencode(changes));
+    } catch (e) {
+      setFormError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <section>
       <h3>连接</h3>
-      <dl className="settings-dl">
-        <dt>项目目录</dt>
-        <dd className="mono">{server?.projectRoot ?? '—'}</dd>
-        <dt>OpenCode</dt>
-        <dd>
-          <span className="mono">{server?.opencodeUrl ?? '—'}</span> · {oc ? '已连接' : '未连接'}
-        </dd>
-        <dt>访问密码</dt>
-        <dd>{authRequired ? '已开启' : '未开启'}</dd>
-        <dt>PixelWeb</dt>
-        <dd className="mono">v{server?.version ?? '?'}</dd>
-      </dl>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (dirty) void connect({ url, username, ...(password ? { password } : {}) });
+        }}
+      >
+        <dl className="settings-dl">
+          <dt>OpenCode</dt>
+          <dd className={busy ? 'muted' : oc ? '' : 'error'}>
+            {busy ? '连接中…' : oc ? '已连接' : `未连接${ocError ? `：${ocError}` : ''}`}
+          </dd>
+          <dt>
+            <label htmlFor="oc-url">地址</label>
+          </dt>
+          <dd>
+            <input ref={urlRef} id="oc-url" className="mono" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="http://127.0.0.1:4096" spellCheck={false} disabled={!conn} />
+          </dd>
+          <dt>
+            <label htmlFor="oc-user">用户名</label>
+          </dt>
+          <dd>
+            <input id="oc-user" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="opencode" autoComplete="off" spellCheck={false} disabled={!conn} />
+          </dd>
+          <dt>
+            <label htmlFor="oc-pass">密码</label>
+          </dt>
+          <dd>
+            <input
+              id="oc-pass"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder={conn?.hasPassword ? '已设置，留空不改' : '未设置'}
+              autoComplete="new-password"
+              disabled={!conn}
+            />
+          </dd>
+          <dt />
+          <dd className="conn-actions">
+            <button type="submit" className="primary" disabled={busy || !dirty}>
+              保存并重连
+            </button>
+            {!oc && (
+              <button type="button" disabled={busy} onClick={() => void connect({})}>
+                立即重试
+              </button>
+            )}
+            {formError && <span className="error small">{formError}</span>}
+          </dd>
+          <dt>项目目录</dt>
+          <dd className="mono">{server?.projectRoot ?? '—'}</dd>
+          <dt>访问密码</dt>
+          <dd>{authRequired ? '已开启' : '未开启'}</dd>
+          <dt>PixelWeb</dt>
+          <dd className="mono">v{server?.version ?? '?'}</dd>
+        </dl>
+      </form>
       <p className="muted small">
-        这几项由启动参数决定（<code>--project</code>、<code>--opencode</code>、<code>--password</code>），修改后需要重启 PixelWeb。
+        OpenCode 地址可以只填端口（比如 <code>4097</code>），主机沿用现在的。在这里改的只在这次运行中有效，重启 PixelWeb 后回到启动参数 <code>--opencode</code>。项目在顶栏切换；访问密码由 <code>--password</code> 决定，修改要重启。
       </p>
     </section>
   );

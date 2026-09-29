@@ -51,6 +51,8 @@ node packages/server/dist/index.js --project ~/your-project
 --no-title-date            不给会话标题加日期前缀 (同 PIXELWEB_TITLE_DATE=0)
 ```
 
+OpenCode 的地址、用户名和密码也能在运行中改：设置（⌘,）→ 连接，地址可以只填端口；连不上时顶栏的“OpenCode 未连接”旁边有“设置”入口，还能“立即重试”，不用等自动重连。界面里改的只在这次运行中有效，重启 PixelWeb 后回到上面的参数。
+
 ### 会话命名
 
 会话标题统一成 `yyyymmdd-动词对象`，只用中文，整个标题不超过 25 个字，例如 `20260928-修复登录跳转`。分两半做：

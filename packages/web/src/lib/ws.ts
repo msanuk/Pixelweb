@@ -1,9 +1,11 @@
 import type { ClientMessage, ServerMessage } from '@pixelweb/shared';
-import { applyEvent, getState, loadModels, setServer, setState } from './store';
+import { applyEvent, getState, loadModels, loadOpencodeData, setServer, setState } from './store';
 import { onOpencodeEvent } from './notify';
 
 let socket: WebSocket | null = null;
 let retry = 1000;
+/** The page's first status is covered by loadInitial; later ones that bring OpenCode up mean reloading. */
+let statusSeen = false;
 
 export function connect(): void {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
@@ -13,7 +15,8 @@ export function connect(): void {
     setState({ wsConnected: true });
   };
   socket.onclose = () => {
-    setState({ wsConnected: false });
+    // unknown until the server says again; if it restarted, reconnecting reloads what it may have missed
+    setState({ wsConnected: false, opencodeConnected: false });
     if (getState().needLogin) return; // the login screen reloads the page once signed in
     setTimeout(connect, retry);
     retry = Math.min(retry * 2, 10000);
@@ -30,10 +33,16 @@ export function connect(): void {
       case 'hello':
         setServer(msg.server);
         break;
-      case 'opencode.status':
+      case 'opencode.status': {
+        const cameUp = statusSeen && msg.connected && !getState().opencodeConnected;
+        statusSeen = true;
         setState({ opencodeConnected: msg.connected, opencodeError: msg.error });
-        if (msg.connected && !getState().modelInfo && !getState().needLogin) void loadModels();
+        if (getState().needLogin) break;
+        // started after PixelWeb, restarted, or another address from 设置
+        if (cameUp) void loadOpencodeData();
+        else if (msg.connected && !getState().modelInfo) void loadModels();
         break;
+      }
       case 'opencode.event': {
         const sid = (msg.event.properties as { sessionID?: string }).sessionID;
         const prevStatus = sid ? getState().status[sid] : undefined;
