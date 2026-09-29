@@ -119,7 +119,7 @@ try {
         tool('p33', 'read', { filePath: f('packages/web/src/panels/ArchGraph.tsx') }, '…', t - 45000),
         tool('p34', 'edit', { filePath: f('packages/web/src/lib/api.ts'), oldString: 'a', newString: 'b' }, 'ok', t - 40000),
         tool('p35', 'bash', { command: `git add -A && git commit -m "${subject.replace(/"/g, "'")}"` }, `[main ${short}] ${subject}\n 3 files changed`, t - 500, t + 500),
-        { id: 'p36', sessionID: 'ses_3', messageID: 'm32', type: 'text', text: `已提交 ${short}。改动如下：\n\n| 文件 | 改动 | 行数 |\n|:---|:---|---:|\n| \`src/auth.ts\` | token 过期时跳到 **登录页** | +12 |\n| \`src/router.ts\` | 守卫改用 \`isExpired() \\|\\| !user\` | +3 −1 |\n| \`test/auth.test.ts\` | 补一个过期用例 | +20 |\n\n调用关系：\n\n\`\`\`mermaid\ngraph LR\n  router[src/router.ts] --> auth[src/auth.ts]\n  auth --> store[(token 存储)]\n  test[test/auth.test.ts] -.-> auth\n\`\`\`\n\n测试全部通过。` },
+        { id: 'p36', sessionID: 'ses_3', messageID: 'm32', type: 'text', text: `已提交 ${short}。改动如下：\n\n| 文件 | 改动 | 行数 |\n|:---|:---|---:|\n| \`src/auth.ts\` | token 过期时跳到 **登录页** | +12 |\n| \`src/router.ts\` | 守卫改用 \`isExpired() \\|\\| !user\` | +3 −1 |\n| \`test/auth.test.ts\` | 补一个过期用例 | +20 |\n\n调用关系：\n\n\`\`\`mermaid\ngraph LR\n  router[src/router.ts] --> auth[src/auth.ts]\n  auth --> store[(token 存储)]\n  test[test/auth.test.ts] -.-> auth\n\`\`\`\n\n测试全部通过。\n\n---\n\n> *注意*：这次只改了过期跳转，~~刷新令牌~~留到下次。\n> 相关的 Python 钩子叫 __init__，没动。\n\n后续：\n\n1. 前端\n   - 登录页加一句提示，\n     告诉用户为什么被踢出来\n   - _可选_：记住跳转前的页面\n2. 后端\n    - 过期时间改成可配置\n\n详见 [OpenCode 文档](https://opencode.ai/docs) 和 [这个链接](javascript:alert(1))。` },
       ] },
   ];
 } catch { /* not a git checkout: skip the sample */ }
