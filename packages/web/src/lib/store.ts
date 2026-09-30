@@ -134,6 +134,15 @@ export async function loadInitial(): Promise<void> {
 async function loadProjectData(): Promise<void> {
   const [knowledge, terms] = await Promise.all([api.knowledge().catch(() => []), api.terms().catch(() => [])]);
   setState({ knowledge, terms });
+  await loadOpencodeData();
+}
+
+/** What OpenCode serves; reloaded whenever it (re)connects, since it may have restarted or be another server. */
+export async function loadOpencodeData(): Promise<void> {
+  const open = state.selectedSession;
+  // events missed while disconnected: keep the open timeline on screen while it refetches, drop the other cached ones
+  setState((s) => ({ messages: open && s.messages[open] ? { [open]: s.messages[open] } : {} }));
+  if (open) void loadMessages(open, true);
   await refreshSessions();
   void loadModels();
   void loadPermissions();
@@ -143,12 +152,13 @@ async function loadProjectData(): Promise<void> {
  * Every `hello` names the project the server visualises. When it differs from the last one
  * (switched from this tab or another, or the server restarted with another --project),
  * drop what belonged to the old project; the server pushes the new git snapshot and graph itself.
+ * A new OpenCode address (changed in 设置) drops what came from OpenCode; it reloads once that server connects (ws.ts).
  */
 export function setServer(server: NonNullable<State['server']>): void {
-  const prev = state.server?.projectRoot;
+  const prev = state.server;
   setState({ server });
-  if (!prev || prev === server.projectRoot || state.needLogin) return;
-  setState({
+  if (!prev || state.needLogin) return;
+  const fromOpencode: Partial<State> = {
     sessions: [],
     sessionsError: undefined,
     messages: {},
@@ -156,17 +166,18 @@ export function setServer(server: NonNullable<State['server']>): void {
     status: {},
     todos: {},
     permissions: [],
-    git: null,
     commitLinks: [],
-    arch: null,
     modelInfo: null,
     feed: [],
     selectedSession: null,
-    archFocus: null,
-    gitFocus: null,
     partFocus: null,
-  });
-  void loadProjectData();
+  };
+  if (prev.projectRoot !== server.projectRoot) {
+    setState({ ...fromOpencode, git: null, arch: null, archFocus: null, gitFocus: null });
+    void loadProjectData();
+  } else if (prev.opencodeUrl !== server.opencodeUrl) {
+    setState(fromOpencode);
+  }
 }
 
 export async function switchProject(dir: string): Promise<void> {

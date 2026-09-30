@@ -365,6 +365,16 @@ export interface ProjectOption {
   current: boolean;
 }
 
+/** How PixelWeb reaches `opencode serve` (GET / POST /api/opencode). Changeable from 设置; a restart goes back to --opencode. */
+export interface OpencodeConnection {
+  url: string;
+  username: string;
+  /** the password itself never goes back to the browser */
+  hasPassword: boolean;
+  connected: boolean;
+  error?: string;
+}
+
 export interface ServerInfo {
   version: string;
   opencodeUrl: string;

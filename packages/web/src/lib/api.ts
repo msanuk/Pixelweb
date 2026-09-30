@@ -10,6 +10,7 @@ import type {
   ModelInfo,
   OcMessageWithParts,
   OcSession,
+  OpencodeConnection,
   PermissionResponse,
   ProjectOption,
   ServerInfo,
@@ -47,6 +48,10 @@ export const api = {
   info: () => req<ServerInfo>('/api/info'),
   projects: () => req<ProjectOption[]>('/api/projects'),
   switchProject: (dir: string) => req<{ projectRoot: string }>('/api/project', { method: 'POST', body: JSON.stringify({ dir }) }),
+  opencode: () => req<OpencodeConnection>('/api/opencode'),
+  /** no fields = retry now; answers once the attempt connected or failed */
+  connectOpencode: (changes: { url?: string; username?: string; password?: string } = {}) =>
+    req<OpencodeConnection>('/api/opencode', { method: 'POST', body: JSON.stringify(changes) }),
   models: () => req<ModelInfo>('/api/models'),
   usage: (from: number, to: number) =>
     req<UsageReport>(`/api/usage?from=${from}&to=${to}&tz=${new Date().getTimezoneOffset()}`),

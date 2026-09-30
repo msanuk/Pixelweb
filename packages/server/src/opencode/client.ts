@@ -47,6 +47,8 @@ export class OpencodeClient extends EventEmitter {
   private connected = false;
   private stopped = false;
   private backoff = 1000;
+  /** Ends the wait between reconnect attempts early. */
+  private wake?: () => void;
 
   constructor(private readonly opts: OpencodeClientOptions) {
     super();
@@ -199,6 +201,36 @@ export class OpencodeClient extends EventEmitter {
   stop(): void {
     this.stopped = true;
     this.abort?.abort();
+    this.wake?.();
+  }
+
+  /** Drops the stream (if any) and connects again now instead of waiting out the backoff. */
+  reconnect(): void {
+    this.backoff = 1000;
+    this.abort?.abort();
+    this.wake?.();
+  }
+
+  /** Points the client at another server or credentials (from 设置) and reconnects. */
+  configure(next: Pick<OpencodeClientOptions, 'baseUrl' | 'username' | 'password'>): void {
+    Object.assign(this.opts, next);
+    this.reconnect();
+  }
+
+  /** The next connect attempt's result (connected, or failed with an error); the current state if none comes within `ms`. */
+  nextOutcome(ms: number): Promise<{ connected: boolean; error?: string }> {
+    return new Promise((resolve) => {
+      const done = (s: { connected: boolean; error?: string }) => {
+        clearTimeout(timer);
+        this.off('status', onStatus);
+        resolve(s);
+      };
+      const onStatus = (s: { connected: boolean; error?: string }) => {
+        if (s.connected || s.error) done(s);
+      };
+      const timer = setTimeout(() => done({ connected: this.connected }), ms);
+      this.on('status', onStatus);
+    });
   }
 
   private setConnected(v: boolean, error?: string): void {
@@ -213,15 +245,30 @@ export class OpencodeClient extends EventEmitter {
   private async loop(): Promise<void> {
     while (!this.stopped) {
       this.abort = new AbortController();
+      const signal = this.abort.signal;
       try {
-        await this.consume(this.abort.signal);
-        this.backoff = 1000;
+        await this.consume(signal);
       } catch (err) {
         if (this.stopped) break;
-        const message = err instanceof Error ? err.message : String(err);
+        if (signal.aborted) {
+          // reconnect(): not a failure, go again straight away
+          this.setConnected(false);
+          continue;
+        }
+        // Node's fetch only says "fetch failed"; the cause (ECONNREFUSED, ENOTFOUND…) says whether the port or host is wrong
+        const code = (err as { cause?: { code?: unknown } } | undefined)?.cause?.code;
+        const message = (err instanceof Error ? err.message : String(err)) + (typeof code === 'string' ? ` (${code})` : '');
         this.setConnected(false, message);
-        await new Promise((r) => setTimeout(r, this.backoff));
-        this.backoff = Math.min(this.backoff * 2, 15000);
+        const wait = this.backoff;
+        this.backoff = Math.min(wait * 2, 15000);
+        await new Promise<void>((resolve) => {
+          const t = setTimeout(resolve, wait);
+          this.wake = () => {
+            clearTimeout(t);
+            resolve();
+          };
+        });
+        this.wake = undefined;
       }
     }
     this.setConnected(false);
@@ -234,6 +281,7 @@ export class OpencodeClient extends EventEmitter {
     });
     if (!res.ok || !res.body) throw new Error(`SSE connect failed: ${res.status}`);
     this.setConnected(true);
+    this.backoff = 1000; // consume() only ever ends by throwing, so reset here
 
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
