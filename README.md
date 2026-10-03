@@ -113,6 +113,21 @@ OPENCODE_SERVER_PASSWORD=<opencode 密码>   # 两边都会用到
 - 开机自启：macOS / Linux 上先执行 `npx pm2 startup`，照它打印的命令做，然后 `npx pm2 save`。Windows 上 pm2 做不了开机自启，需要另装 [pm2-installer](https://github.com/jessety/pm2-installer) 之类的服务包装。
 - 改了代码或 `git pull` 之后，再跑一次 `npm run pm2:start` 就会重新 build 并重启。
 
+### 云控制台向导（浏览器插件）
+
+在阿里云、AWS 等控制台里看不懂某个配置页时，用 Chrome / Edge 插件把这一页发给 PixelWeb：它在当前项目下开一个只读的 🧭 会话，结合项目代码告诉你每一项怎么填、要注意什么。回答显示在插件侧边栏里，PixelWeb 时间线里也能看到同一个会话。
+
+```bash
+npm run build --workspace=@pixelweb/extension   # 产物在 packages/extension/dist
+```
+
+1. Chrome 打开 `chrome://extensions`（Edge 是 `edge://extensions`），打开「开发者模式」，「加载已解压的扩展程序」，选 `packages/extension/dist`。
+2. PixelWeb 里打开 设置 → 浏览器插件，生成一个 token（只显示一次）。
+3. 点浏览器工具栏上的插件图标打开侧边栏，填 PixelWeb 地址和 token，点「连接」，按提示允许插件访问这个地址。
+4. 在控制台里打开看不懂的那一页，点「捕捉这一页」，看过要发的内容再发送。
+
+插件只读阿里云、AWS、华为云、Azure、GCP 控制台的页面，而且只在你点「捕捉」时读；密钥、密码类的值发送前就会被换成 `‹已隐藏›`，密码框从不读取。token 只能发起和查看向导会话，不能批准命令。设计见 [docs/cloud-guide.md](docs/cloud-guide.md)。
+
 ## 开发
 
 ```bash
@@ -135,6 +150,7 @@ packages/
     knowledge/           ← 卡片加载、搜索、学习记录、教学 prompt
     ws.ts / index.ts     ← WebSocket 广播 + /api 路由
   web/       React + Vite；单一 store，事件 reducer 把 SSE 事件合并进消息树
+  extension/ 云控制台向导的浏览器插件（Chrome MV3）：页面提取、侧边栏；回答用 web 的 Markdown 渲染
 knowledge/   知识卡片（Markdown + frontmatter），见 knowledge/README.md
 ```
 

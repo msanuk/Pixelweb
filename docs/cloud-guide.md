@@ -1,6 +1,6 @@
 # 云控制台向导（浏览器插件）设计
 
-> 状态：服务端（配对 token、`/api/ext` 鉴权、指导会话、事件流、脱敏）已实现，代码在 `packages/server/src/ext/` 和 `packages/shared/src/capture.js`；设置 → 浏览器插件 可以生成、查看、撤销 token。浏览器插件本身还没做。
+> 状态：P0 已实现。服务端（配对 token、`/api/ext` 鉴权、指导会话、事件流、脱敏）在 `packages/server/src/ext/` 和 `packages/shared/src/capture.js`；设置 → 浏览器插件 可以生成、查看、撤销 token；插件在 `packages/extension`（页面提取、脱敏预览、侧边栏流式回答、追问、捕捉下一页）。⟦f⟧ 点击定位、卡片深链、厂商适配还没做。
 
 ## 要解决的问题
 
@@ -116,8 +116,8 @@ token 能做的事（收窄）：
 - 理由：token 存在扩展里，万一泄露，拿到它的人也没法在服务器上执行命令。
 
 插件侧：
-- 服务器地址在插件设置里填；对应 origin 用 `optional_host_permissions` 运行时申请。
-- 所有网络请求都由 service worker 发出，content script 不发请求：不受控制台页面 CSP 和混合内容限制，服务器是 `http://IP` 也能连。
+- 服务器地址在插件设置里填；对应 origin 用 `optional_host_permissions` 在点「连接」时申请。
+- 网络请求都由侧边栏页面（扩展自己的页面）发出，content script 不发请求：不受控制台页面 CSP 和混合内容限制，服务器是 `http://IP` 也能连；有 host 权限的扩展页不受 CORS 限制，服务端不用开 CORS。事件流跟着侧边栏走：关掉侧边栏就断开，重开时重连拿快照。
 
 ## 4. 服务端
 
@@ -170,13 +170,18 @@ token 能做的事（收窄）：
 
 ## 5. 插件
 
-- Chrome MV3（Edge 直接可用），新 workspace `packages/extension`，开发者模式“加载已解压的扩展”，不上架商店。
-- 构建：vite 打侧边栏页面和 service worker；content script 单独打成 IIFE（`scripting.executeScript` 注入的脚本不能是 ES module）。
-- 权限：`sidePanel`、`scripting`、`storage`、`activeTab`；已知控制台域名（`*.console.aliyun.com`、`*.aliyun.com`、`console.aws.amazon.com`、`*.console.aws.amazon.com`、华为云 / Azure / GCP 控制台域名）和 PixelWeb 服务器 origin 放进 `optional_host_permissions`，第一次用时申请。
-  - 原因：`activeTab` 只在点工具栏图标、快捷键、右键菜单时授予，侧边栏里的按钮不一定拿得到；而且它只覆盖顶层 origin，进不了阿里云的跨子域 iframe。不在已知列表里的网站，退回 `activeTab`（点工具栏图标或快捷键）。
-- 侧边栏界面：连接状态 → 捕捉预览（可去掉字段）+ 问题输入 → 流式回答 → 追问框和“下一步”按钮。
-- Markdown 渲染和术语高亮复用 `packages/web` 的 `Markdown.tsx` / `Highlight.tsx`（vite alias 引源码，不复制）；点术语在新标签页打开 PixelWeb 的卡片（需要给 web 加一个卡片深链）。
-- ⟦f12⟧ 渲染成小标签，点击 → 发消息给 content script → `scrollIntoView` + 叠一层高亮框；页面重渲染导致对应关系失效时，按 label 文字重新找，找不到就提示“页面已变化，请重新捕捉”。
+- Chrome MV3（Edge 直接可用），workspace `packages/extension`，开发者模式“加载已解压的扩展”，不上架商店。`npm run build --workspace=@pixelweb/extension` 产出 `dist/`。
+- 构建：vite 打侧边栏页面和 service worker（只负责“点图标打开侧边栏”）；content script 单独打成 IIFE（`scripting.executeScript` 注入的脚本不能是 ES module）。manifest 由 `src/manifest.ts` 生成。
+- 权限：`sidePanel`、`scripting`、`storage`。
+  - 已知控制台域名（`*.aliyun.com`、`*.alibabacloud.com`、`*.aws.amazon.com`、`*.amazonaws.cn`、`*.huaweicloud.com`、`*.azure.com`、`*.azure.cn`、`console.cloud.google.com`）放 `host_permissions`（安装即有）。原来打算放 optional、第一次用时申请，实现时改了：没有 host 权限就读不到标签页的 URL，不知道该申请哪个域名；插件是自己加载的、只给这几个网站用，而且不声明 content script，只在点「捕捉」时注入。Chrome 的扩展详情里仍然可以把它改成“点击时才允许”。
+  - PixelWeb 的地址是任意的，放 `optional_host_permissions`（`http://*/*`、`https://*/*`），点「连接」时只申请那一个 origin。
+  - 不在已知列表里的网站暂不支持（提示“读不了这个页面”）；以后可以加右键菜单，靠 `activeTab` 临时授权当前页。
+- 捕捉：对标签页的所有 frame 注入（`allFrames`，有权限的跨子域 iframe 也进得去），每个 frame 提取自己的字段和正文；侧边栏按“顶层 frame 在前”合并、统一编号 f1…fn、正文共用 8000 字预算，然后跑 `redactCapture`，预览里看到的就是脱敏后的值。字段 → 元素的对应关系留在 content script 里（`__pixelweb.elements`），侧边栏记着每个编号在哪个 frame 的第几个，留给 ⟦f⟧ 定位用。
+- 侧边栏界面：连接状态（项目名 + OpenCode 是否连着）→ 捕捉预览（可逐项去掉字段、可不带正文）+ 问题输入 → 流式回答（工具调用显示成一行，如“读取 src/index.ts”“查文档 help.aliyun.com/…”）→ 追问框和「捕捉下一页」。bash 权限请求只显示“请到 PixelWeb 审批”。
+- 对话按浏览器窗口记（`chrome.storage.session`），切标签页时回答还在；「新对话」只是开一个新会话，旧的在 PixelWeb 里还能看。
+- Markdown 渲染复用 `packages/web` 的 `MarkdownView.tsx`（不依赖 web 的 store，vite alias 引源码）和 `theme.css`。术语高亮和卡片深链留到 P1。
+- ⟦f12⟧ 渲染成小标签，悬停显示字段名；回答里紧跟着没写字段名时，标签里带上。字段名来自用户消息里的 `<page-data>`（`lib/prompt.ts` 按服务端的格式读回，有契约测试），所以重开侧边栏也对得上。点击定位（P1）：发消息给 content script → `scrollIntoView` + 叠一层高亮框；页面重渲染导致对应关系失效时，按 label 文字重新找，找不到就提示“页面已变化，请重新捕捉”。
+- 开发时可以把侧边栏当普通页面打开：`chrome-extension://<id>/sidepanel.html?tab=<标签页 id>`（脚本打不开真正的侧边栏，端到端测试就这么用）。
 
 ## 6. 知识卡片
 
@@ -184,12 +189,11 @@ token 能做的事（收窄）：
 
 ## 7. 测试与验证
 
-- 纯函数单测：字段提取（vitest + happy-dom，用仿阿里云 / AWS 表单的 HTML fixture）、脱敏、URL 清洗、提示拼装、`/api/ext` 鉴权边界（没 token 401；token 访问非 `/api/ext` 路由被拒；token 不能操作非指导会话）。
-- `npm run dev:mock` 加一个假的控制台页面（几个自定义组件做的表单），端到端试插件。
-- 浏览器验证：Playwright 用 `--load-extension` 加载解压后的插件，跑“捕捉 → 发送 → 回答 → 点 ⟦f⟧ 定位”。
+- 纯函数单测：字段提取（vitest + happy-dom，`packages/extension/test/fixtures/` 里仿阿里云 / AWS 表单的 HTML）、多 frame 合并、事件流 reducer、提示读回、脱敏、URL 清洗、提示拼装、`/api/ext` 鉴权边界（没 token 401；token 访问非 `/api/ext` 路由被拒；token 不能操作非指导会话）。
+- 浏览器验证：`npm run build:e2e --workspace=@pixelweb/extension`（manifest 多带 loopback 的 host 权限，测试里点不了权限弹窗），Playwright 用 `--load-extension` 加载，`--host-resolver-rules` 把 `ecs.console.aliyun.com` 指到本机放 fixture 的 HTTPS 服务，跑“连接 → 捕捉 → 发送 → 流式回答 → 追问 → 捕捉下一页 → 重开侧边栏”。
 
 ## 分期
 
-- **P0**：配对 token、`/api/ext` 边界、通用提取 + 脱敏 + 预览、指导会话、侧边栏流式回答、追问。
-- **P1**：⟦f⟧ 点击定位高亮、“下一步”捕捉、只捕捉选中区域、卡片深链。
+- **P0**（已完成）：配对 token、`/api/ext` 边界、通用提取 + 脱敏 + 预览、指导会话、侧边栏流式回答、追问；“下一步”捕捉也一起做了。
+- **P1**：⟦f⟧ 点击定位高亮、只捕捉选中区域、术语高亮 + 卡片深链、右键菜单（支持不在列表里的网站）。
 - **P2**：阿里云 / AWS 适配（跨域 iframe、帮助气泡）、云概念卡片、可选截图（要模型支持看图）。

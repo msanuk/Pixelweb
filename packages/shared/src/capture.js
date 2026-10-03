@@ -18,6 +18,15 @@ const VENDORS = [
   ['gcp', /(^|\.)cloud\.google\.com$/],
 ];
 
+/** How each vendor is called in prompts and in the extension. @type {Record<CloudVendor, string>} */
+export const VENDOR_NAMES = {
+  aliyun: '阿里云',
+  aws: 'AWS',
+  huaweicloud: '华为云',
+  azure: 'Azure',
+  gcp: 'GCP',
+};
+
 /** @param {string} hostname */
 export function vendorOf(hostname) {
   const host = hostname.toLowerCase();

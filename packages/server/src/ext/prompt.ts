@@ -1,5 +1,5 @@
 import type { CapturedField, CapturedFieldKind, CloudVendor, GuideRequest, OcEvent, OcPermissionRule, PageCapture } from '@pixelweb/shared';
-import { vendorOf } from '@pixelweb/shared/capture';
+import { VENDOR_NAMES, vendorOf } from '@pixelweb/shared/capture';
 
 /**
  * The cloud console guide (docs/cloud-guide.md): what the browser extension sends, checked and
@@ -45,14 +45,6 @@ export const GUIDE_PERMISSION: OcPermissionRule[] = [
   { permission: 'webfetch', pattern: '*', action: 'ask' },
   ...DOC_SITES.map((pattern): OcPermissionRule => ({ permission: 'webfetch', pattern, action: 'allow' })),
 ];
-
-export const VENDOR_NAMES: Record<CloudVendor, string> = {
-  aliyun: '阿里云',
-  aws: 'AWS',
-  huaweicloud: '华为云',
-  azure: 'Azure',
-  gcp: 'GCP',
-};
 
 // Hard caps on what the extension may send; it trims to a smaller budget itself.
 const MAX = {
