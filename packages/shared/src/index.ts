@@ -382,3 +382,82 @@ export interface ServerInfo {
   opencodeConnected: boolean;
   teachingSessions: string[];
 }
+
+// ---- Cloud console guide (browser extension, docs/cloud-guide.md)
+
+export type CloudVendor = 'aliyun' | 'aws' | 'huaweicloud' | 'azure' | 'gcp';
+
+export type CapturedFieldKind = 'text' | 'number' | 'textarea' | 'select' | 'radio' | 'checkbox' | 'switch' | 'other';
+
+/** One form control on the captured page. */
+export interface CapturedField {
+  /** f1…fn, valid for this capture only; the agent cites fields as ⟦f12⟧ */
+  ref: string;
+  label: string;
+  kind: CapturedFieldKind;
+  /** already redacted; absent for password inputs */
+  value?: string;
+  options?: string[];
+  required?: boolean;
+  disabled?: boolean;
+  help?: string;
+  error?: string;
+  /** title of the group the field sits in, e.g. "网络和安全组" */
+  section?: string;
+}
+
+/** A cloud console page as the extension saw it when the user clicked capture. */
+export interface PageCapture {
+  /** with secret-looking query parameters removed */
+  url: string;
+  title: string;
+  vendor: CloudVendor | null;
+  breadcrumbs: string[];
+  heading: string;
+  fields: CapturedField[];
+  /** visible text, cut to a budget */
+  text: string;
+  selection?: string;
+  /** how many values were replaced by the mask */
+  redactions: number;
+  capturedAt: number;
+}
+
+/** A paired extension, as listed in 设置; the token itself is only shown once, at creation. */
+export interface ExtTokenInfo {
+  id: string;
+  name: string;
+  createdAt: number;
+  lastUsedAt?: number;
+}
+
+export interface ExtTokenCreated {
+  token: string;
+  info: ExtTokenInfo;
+}
+
+/** `GET /api/ext/hello`: the extension checks its token and shows where guides will run. */
+export interface ExtHello {
+  version: string;
+  projectRoot: string;
+  opencodeConnected: boolean;
+  device: string;
+}
+
+/** `POST /api/ext/guide` starts a guide session; `POST /api/ext/guide/:id/prompt` continues it. */
+export interface GuideRequest {
+  capture?: PageCapture;
+  question?: string;
+}
+
+export interface GuideResponse {
+  sessionID: string;
+  title: string;
+}
+
+/** What `GET /api/ext/guide/:id/events` streams, one per SSE `data:` line. */
+export type GuideStreamMessage =
+  | { type: 'snapshot'; messages: OcMessageWithParts[]; busy: boolean; permissions: unknown[] }
+  | { type: 'event'; event: OcEvent }
+  | { type: 'opencode.status'; connected: boolean }
+  | { type: 'error'; error: string };

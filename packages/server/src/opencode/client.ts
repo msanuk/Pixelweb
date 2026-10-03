@@ -125,16 +125,17 @@ export class OpencodeClient extends EventEmitter {
   }
 
   /** Sessions that aren't idle right now (OpenCode 1.x); idle ones are left out. */
-  sessionStatus(): Promise<Record<string, { type: string }>> {
-    return this.json('session/status');
+  sessionStatus(directory?: string): Promise<Record<string, { type: string }>> {
+    return this.json('session/status', {}, { directory });
   }
 
   getSession(id: string): Promise<OcSession> {
     return this.json(`session/${encodeURIComponent(id)}`);
   }
 
-  messages(id: string): Promise<OcMessageWithParts[]> {
-    return this.json(`session/${encodeURIComponent(id)}/message`);
+  /** `directory` reaches a session of another project than the current one. */
+  messages(id: string, directory?: string): Promise<OcMessageWithParts[]> {
+    return this.json(`session/${encodeURIComponent(id)}/message`, {}, { directory });
   }
 
   /** Rename a session; OpenCode broadcasts `session.updated`, so its own UI follows. */
@@ -142,23 +143,27 @@ export class OpencodeClient extends EventEmitter {
     return this.json(`session/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) });
   }
 
-  createSession(body: { title?: string; parentID?: string; permission?: OcPermissionRule[] }): Promise<OcSession> {
-    return this.json('session', { method: 'POST', body: JSON.stringify(body) });
+  createSession(body: { title?: string; parentID?: string; permission?: OcPermissionRule[] }, directory?: string): Promise<OcSession> {
+    return this.json('session', { method: 'POST', body: JSON.stringify(body) }, { directory });
   }
 
   /** Fire-and-forget prompt; the reply streams back over SSE. */
-  promptAsync(id: string, input: PromptInput): Promise<void> {
-    return this.json(`session/${encodeURIComponent(id)}/prompt_async`, {
-      method: 'POST',
-      body: JSON.stringify(input),
-    });
+  promptAsync(id: string, input: PromptInput, directory?: string): Promise<void> {
+    return this.json(
+      `session/${encodeURIComponent(id)}/prompt_async`,
+      {
+        method: 'POST',
+        body: JSON.stringify(input),
+      },
+      { directory },
+    );
   }
 
   /** Answer a pending permission request; opencode confirms with a `permission.replied` event. */
   /** Pending permission requests (OpenCode ≥ 1.x `GET /permission`); empty on versions without it. */
-  async listPermissions(): Promise<unknown[]> {
+  async listPermissions(directory?: string): Promise<unknown[]> {
     try {
-      return await this.json<unknown[]>('permission');
+      return await this.json<unknown[]>('permission', {}, { directory });
     } catch (e) {
       if (e instanceof OpencodeHttpError && e.status === 404) return [];
       throw e;
@@ -178,8 +183,8 @@ export class OpencodeClient extends EventEmitter {
     }
   }
 
-  abortSession(id: string): Promise<unknown> {
-    return this.json(`session/${encodeURIComponent(id)}/abort`, { method: 'POST' });
+  abortSession(id: string, directory?: string): Promise<unknown> {
+    return this.json(`session/${encodeURIComponent(id)}/abort`, { method: 'POST' }, { directory });
   }
 
   listAgents(): Promise<unknown[]> {

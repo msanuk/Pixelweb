@@ -41,6 +41,7 @@ describe('conventionalTitle', () => {
     expect(conventionalTitle(ses('New session - 2026-09-28T06:03:00.000Z'))).toBeNull();
     expect(conventionalTitle(ses('搜索代码 (@explore subagent)', { parentID: 'p' }))).toBeNull();
     expect(conventionalTitle(ses('📖 Webhook'))).toBeNull();
+    expect(conventionalTitle(ses('🧭 阿里云 创建实例'))).toBeNull();
     expect(conventionalTitle(ses('20260928-修复登录跳转'))).toBeNull();
   });
 });
