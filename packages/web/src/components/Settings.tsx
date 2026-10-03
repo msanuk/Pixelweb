@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import type { OpencodeConnection } from '@pixelweb/shared';
+import type { ExtTokenCreated, ExtTokenInfo, OpencodeConnection } from '@pixelweb/shared';
 import { api } from '../lib/api';
 import { useStore } from '../lib/store';
 import { PALETTES, THEMES, setPalette, setTheme, usePalette, useTheme } from '../lib/theme';
 import { SCALES, resetSettings, updateSettings, useSettings, type Settings as Prefs } from '../lib/settings';
 import { deliver, enableNotifications, notifyPermission, notifySupport } from '../lib/notify';
+import { fmtDate, relTime } from '../lib/format';
 import { Icon } from './Icon';
 
 /** Per-browser preferences, plus the server's OpenCode connection (changeable for this run; project and password are shown read-only). */
@@ -65,6 +66,7 @@ export function SettingsDialog({ onClose, focusConnection = false }: { onClose: 
 
           <NotifySection prefs={prefs} />
           <ConnectionSection focus={focusConnection} />
+          <ExtensionSection />
         </div>
 
         <footer className="modal-foot">
@@ -257,6 +259,152 @@ function ConnectionSection({ focus }: { focus: boolean }) {
         OpenCode 地址可以只填端口（比如 <code>4097</code>），主机沿用现在的。在这里改的只在这次运行中有效，重启 PixelWeb 后回到启动参数 <code>--opencode</code>。项目在顶栏切换；访问密码由 <code>--password</code> 决定，修改要重启。
       </p>
     </section>
+  );
+}
+
+/** Pairing the cloud guide browser extension (docs/cloud-guide.md): make a token, see who's paired, revoke. */
+function ExtensionSection() {
+  const [tokens, setTokens] = useState<ExtTokenInfo[] | null>(null);
+  const [name, setName] = useState('');
+  const [created, setCreated] = useState<ExtTokenCreated | null>(null);
+  const [confirming, setConfirming] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const newRef = useRef<HTMLDivElement>(null);
+
+  const load = () =>
+    api
+      .extTokens()
+      .then(setTokens)
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
+  useEffect(() => {
+    void load();
+  }, []);
+  // the token is the one thing to see now, and it lands below the fold
+  useEffect(() => {
+    if (created) newRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [created]);
+  // "撤销" asks once more; the second click has to come soon
+  useEffect(() => {
+    if (!confirming) return;
+    const t = setTimeout(() => setConfirming(null), 4000);
+    return () => clearTimeout(t);
+  }, [confirming]);
+
+  const run = async (fn: () => Promise<void>) => {
+    setBusy(true);
+    setError(null);
+    try {
+      await fn();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const create = () =>
+    run(async () => {
+      setCreated(await api.createExtToken(name.trim()));
+      setName('');
+      await load();
+    });
+  const revoke = (id: string) =>
+    run(async () => {
+      await api.revokeExtToken(id);
+      setConfirming(null);
+      if (created?.info.id === id) setCreated(null);
+      await load();
+    });
+
+  return (
+    <section>
+      <h3>浏览器插件</h3>
+      <p className="muted small">
+        云控制台向导插件用配对 token 连接 PixelWeb。token 只能新建和追问 🧭 指导会话：碰不到别的会话，也不能批准 agent 运行命令，那些仍然只能在这里批准。
+      </p>
+
+      {created && (
+        <div ref={newRef} className="ext-new" role="status">
+          <p>
+            「{created.info.name}」的 token 已生成。<strong>它只显示这一次</strong>，关掉设置就看不到了，请复制到插件的设置里：
+          </p>
+          <dl className="settings-dl">
+            <dt>服务器地址</dt>
+            <dd>
+              <CopyField value={location.origin} label="服务器地址" />
+            </dd>
+            <dt>Token</dt>
+            <dd>
+              <CopyField value={created.token} label="Token" />
+            </dd>
+          </dl>
+          <button className="link-btn small" onClick={() => setCreated(null)}>
+            已经复制好了
+          </button>
+        </div>
+      )}
+
+      <form
+        className="ext-create"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void create();
+        }}
+      >
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="设备名称，比如 MacBook Chrome" maxLength={40} aria-label="设备名称" />
+        <button type="submit" className="primary" disabled={busy}>
+          生成 token
+        </button>
+      </form>
+      {error && <p className="error small">{error}</p>}
+
+      {tokens && tokens.length > 0 && (
+        <ul className="ext-list">
+          {tokens.map((t) => (
+            <li key={t.id}>
+              <div className="ext-name">{t.name}</div>
+              <div className="muted small">
+                {fmtDate(t.createdAt)} 配对 · {t.lastUsedAt ? `${relTime(t.lastUsedAt)}用过` : '还没用过'}
+              </div>
+              <button className={confirming === t.id ? 'danger' : ''} disabled={busy} onClick={() => (confirming === t.id ? void revoke(t.id) : setConfirming(t.id))}>
+                {confirming === t.id ? '确定撤销' : '撤销'}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {tokens?.length === 0 && !created && <p className="muted small">还没有配对的浏览器。</p>}
+    </section>
+  );
+}
+
+/**
+ * A read-only value with a copy button. The Clipboard API only exists on HTTPS or localhost;
+ * over plain http://<server-ip> the text is selected and copied the old way instead.
+ */
+function CopyField({ value, label }: { value: string; label: string }) {
+  const ref = useRef<HTMLInputElement>(null);
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    let ok = false;
+    try {
+      await navigator.clipboard.writeText(value);
+      ok = true;
+    } catch {
+      ref.current?.select();
+      ok = document.execCommand('copy');
+    }
+    if (!ok) return; // the text stays selected for ⌘C
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+  return (
+    <span className="copy-field">
+      <input ref={ref} className="mono" value={value} readOnly onFocus={(e) => e.target.select()} aria-label={label} />
+      <button type="button" onClick={() => void copy()}>
+        {copied ? '已复制' : '复制'}
+      </button>
+    </span>
   );
 }
 

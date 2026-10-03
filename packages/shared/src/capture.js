@@ -93,6 +93,14 @@ export function isSecretLabel(label) {
   return SECRET_LABEL.test(label) && !HARMLESS_LABEL.test(label);
 }
 
+/** Kinds whose value is typed in; a select or radio holds one of its option names ("登录凭证：自定义密码"). */
+const TYPED = new Set(['text', 'textarea', 'other']);
+
+/** @param {CapturedField} f */
+function holdsSecret(f) {
+  return !!f.value && f.value !== MASK && TYPED.has(f.kind) && !f.options?.includes(f.value) && isSecretLabel(f.label);
+}
+
 const SECRET_PARAM = /token|sig|secret|key|auth|session|code|password|credential|^x-amz-/i;
 
 /**
@@ -154,7 +162,7 @@ export function redactCapture(capture) {
   /** @type {CapturedField[]} */
   const fields = capture.fields.map((f) => {
     let value = f.value;
-    if (value && value !== MASK && isSecretLabel(f.label)) {
+    if (holdsSecret(f)) {
       value = MASK;
       count++;
     } else value = opt(value);

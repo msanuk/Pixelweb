@@ -123,6 +123,18 @@ describe('redactCapture', () => {
     capturedAt: 1,
   };
 
+  it("doesn't mask a choice just because its label names a secret", () => {
+    const r = redactCapture({
+      ...capture,
+      fields: [
+        { ref: 'f1', label: '登录凭证', kind: 'radio', value: '自定义密码', options: ['密钥对', '自定义密码'] },
+        { ref: 'f2', label: '密码强度', kind: 'select', value: '高' },
+        { ref: 'f3', label: '登录密码', kind: 'other', value: 'hunter2' },
+      ],
+    });
+    expect(r.fields.map((f) => f.value)).toEqual(['自定义密码', '高', MASK]);
+  });
+
   it('masks every part of the capture and counts on top of what the extension hid', () => {
     const r = redactCapture(capture);
     expect(r.url).toBe('https://ram.console.aliyun.com/users/new');
