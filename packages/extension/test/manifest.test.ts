@@ -6,7 +6,7 @@ describe('manifest', () => {
   it('only asks for what the side panel uses', () => {
     const m = manifest('1.2.3');
     expect(m.version).toBe('1.2.3');
-    expect(m.permissions).toEqual(['sidePanel', 'scripting', 'storage']);
+    expect(m.permissions).toEqual(['sidePanel', 'scripting', 'storage', 'contextMenus', 'activeTab']);
     expect(m.host_permissions).toEqual(CONSOLE_HOSTS);
     expect(m.host_permissions.some((h) => h.includes('127.0.0.1') || h.includes('localhost'))).toBe(false);
   });

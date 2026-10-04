@@ -19,6 +19,8 @@ export interface FrameCapture {
   fields: Omit<CapturedField, 'ref'>[];
   text: string;
   selection?: string;
+  /** indexes of the fields inside the user's selection, when there is one */
+  selected?: number[];
 }
 
 /** How to tell what is on screen; a test DOM has no layout, so tests pass their own. */
@@ -269,6 +271,13 @@ class Reader {
   }
 }
 
+/** The smallest element holding all of `els`. */
+function commonAncestor(els: Element[]): Element {
+  let box: Element | null = els[0];
+  while (box && !els.every((e) => within(e, box!))) box = parentOf(box);
+  return box ?? els[0];
+}
+
 function isDisabled(el: Element): boolean {
   if ((el as HTMLInputElement).disabled) return true;
   if (closestUp(el, '[aria-disabled="true"], fieldset[disabled]', 3)) return true;
@@ -277,8 +286,10 @@ function isDisabled(el: Element): boolean {
 
 interface Found {
   field: Omit<CapturedField, 'ref'>;
-  /** the element a later "show me ⟦f3⟧" scrolls to */
+  /** the control; whatever is inside it belongs to this field */
   el: Element;
+  /** what "show me ⟦f3⟧" outlines, when that isn't the control itself */
+  mark?: Element;
   /** other elements this field accounts for, e.g. the rest of a radio group */
   covers?: Element[];
 }
@@ -454,7 +465,7 @@ export function extractPage(doc: Document, dom: Dom = browserDom): { capture: Fr
     if (lab.required || radios.some((o) => o.hasAttribute('required'))) field.required = true;
     if (radios.every(isDisabled)) field.disabled = true;
     Object.assign(field, r.notes(anchor));
-    return { field, el: anchor, covers: radios };
+    return { field, el: anchor, mark: box ?? commonAncestor(shown), covers: radios };
   };
 
   for (const el of walk(doc)) {
@@ -476,11 +487,14 @@ export function extractPage(doc: Document, dom: Dom = browserDom): { capture: Fr
     for (const c of found.covers ?? []) covered.add(c);
     if (section && section !== found.field.label) found.field.section = section;
     fields.push(found.field);
-    elements.push(found.el);
+    elements.push(found.mark ?? found.el);
     inside = found.el;
   }
 
-  const sel = doc.getSelection?.()?.toString().trim();
+  const selection = doc.getSelection?.();
+  const sel = selection?.toString().trim();
+  const ranges = sel && selection ? Array.from({ length: selection.rangeCount }, (_, i) => selection.getRangeAt(i)) : [];
+  const selected = elements.flatMap((el, i) => (ranges.some((rg) => rg.intersectsNode(el)) ? [i] : []));
   return {
     capture: {
       url: doc.location?.href ?? doc.URL,
@@ -489,7 +503,7 @@ export function extractPage(doc: Document, dom: Dom = browserDom): { capture: Fr
       heading: heading(doc, r, dom),
       fields,
       text: pageText(doc, dom),
-      ...(sel ? { selection: cut(sel, MAX.selection) } : {}),
+      ...(sel ? { selection: cut(sel, MAX.selection), selected } : {}),
     },
     elements,
   };

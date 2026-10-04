@@ -1,8 +1,9 @@
 /**
  * Cloud consoles the extension may read. Required rather than optional: the
  * extension is loaded unpacked for exactly these sites, and it only reads a
- * page when the user clicks 捕捉 in the side panel (no content scripts are
- * declared). Kept in step with vendorOf in @pixelweb/shared/capture.
+ * page when the user asks (捕捉 in the side panel, or the right-click menu; no
+ * content scripts are declared). Kept in step with vendorOf in
+ * @pixelweb/shared/capture.
  */
 export const CONSOLE_HOSTS = [
   'https://*.aliyun.com/*',
@@ -31,7 +32,8 @@ export function manifest(version: string, opts: { e2e?: boolean } = {}) {
     action: { default_title: 'PixelWeb 云控制台向导' },
     side_panel: { default_path: 'sidepanel.html' },
     background: { service_worker: 'background.js', type: 'module' },
-    permissions: ['sidePanel', 'scripting', 'storage'],
+    // contextMenus + activeTab: the right-click menu, which reads pages outside the known consoles
+    permissions: ['sidePanel', 'scripting', 'storage', 'contextMenus', 'activeTab'],
     host_permissions: opts.e2e ? [...CONSOLE_HOSTS, 'http://127.0.0.1/*', 'http://localhost/*'] : CONSOLE_HOSTS,
     optional_host_permissions: ['http://*/*', 'https://*/*'],
   };

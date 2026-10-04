@@ -58,6 +58,8 @@ async function call<T>(cfg: ServerConfig, method: string, path: string, body?: u
 const guidePath = (id: string, rest = '') => `/api/ext/guide/${encodeURIComponent(id)}${rest}`;
 
 export const hello = (cfg: ServerConfig) => call<ExtHello>(cfg, 'GET', '/api/ext/hello');
+/** Knowledge terms and the card each opens, for linking them in replies. */
+export const terms = (cfg: ServerConfig) => call<{ term: string; cardId: string }[]>(cfg, 'GET', '/api/ext/terms');
 export const startGuide = (cfg: ServerConfig, req: GuideRequest) => call<GuideResponse>(cfg, 'POST', '/api/ext/guide', req);
 export const promptGuide = (cfg: ServerConfig, id: string, req: GuideRequest) => call<unknown>(cfg, 'POST', guidePath(id, '/prompt'), req);
 export const abortGuide = (cfg: ServerConfig, id: string) => call<unknown>(cfg, 'POST', guidePath(id, '/abort'));

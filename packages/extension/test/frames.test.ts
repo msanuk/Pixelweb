@@ -87,9 +87,26 @@ describe('finalCapture', () => {
         }),
       },
     ]);
-    const c = finalCapture(d, new Set(['f1']), false);
+    const c = finalCapture(d, { removed: new Set(['f1']), includeText: false, selectionOnly: false });
     expect(c.fields.map((f) => f.ref)).toEqual(['f2']);
     expect(c.text).toBe('');
-    expect(finalCapture(d, new Set(), true).text).toBe('正文');
+    expect(finalCapture(d, { removed: new Set(), includeText: true, selectionOnly: false }).text).toBe('正文');
+  });
+
+  it('can send only the selected part', () => {
+    const d = mergeFrames([
+      { frameId: 0, result: frame({ text: '正文', selection: '带宽 5', selected: [1], fields: [{ label: 'a', kind: 'text' }, { label: 'b', kind: 'text' }] }) },
+      { frameId: 2, result: frame({ fields: [{ label: 'c', kind: 'text' }], selected: [0] }) },
+    ]);
+    expect(d.selected).toEqual(['f2', 'f3']);
+    const c = finalCapture(d, { removed: new Set(['f3']), includeText: true, selectionOnly: true });
+    expect(c.fields.map((f) => f.ref)).toEqual(['f2']);
+    expect(c.text).toBe('');
+    expect(c.selection).toBe('带宽 5');
+  });
+
+  it('ignores "selection only" when nothing is selected', () => {
+    const d = mergeFrames([{ frameId: 0, result: frame({ text: '正文', fields: [{ label: 'a', kind: 'text' }] }) }]);
+    expect(finalCapture(d, { removed: new Set(), includeText: true, selectionOnly: true })).toMatchObject({ text: '正文', fields: [{ ref: 'f1' }] });
   });
 });

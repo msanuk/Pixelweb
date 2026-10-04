@@ -151,13 +151,28 @@ describe('extractPage edge cases', () => {
     expect(f['交换机'].disabled).toBe(true);
   });
 
-  it('includes the selection', () => {
+  it('includes the selection and which fields are inside it', () => {
     const doc = document; // a parsed document has no window, so no selection
-    doc.body.innerHTML = '<p id="p">按量付费的实例按秒计费</p>';
+    doc.body.innerHTML =
+      '<div id="a"><label for="x">实例名称</label><input id="x" value="web"></div>' +
+      '<div id="b"><p>带宽按使用流量计费</p><label for="y">带宽峰值</label><input id="y" type="number" value="5"></div>';
     const range = doc.createRange();
-    range.selectNodeContents(doc.getElementById('p')!);
+    range.selectNodeContents(doc.getElementById('b')!);
+    doc.getSelection()!.removeAllRanges();
     doc.getSelection()!.addRange(range);
-    expect(extractPage(doc, dom).capture.selection).toBe('按量付费的实例按秒计费');
+    const c = extractPage(doc, dom).capture;
+    expect(c.selection).toContain('带宽按使用流量计费');
+    expect(c.selected).toEqual([1]);
+    doc.getSelection()!.removeAllRanges();
+    expect(extractPage(doc, dom).capture.selected).toBeUndefined();
+  });
+
+  it('outlines a radio group without a container around all its options', () => {
+    const doc = html(
+      '<div class="item"><span>登录凭证</span><div id="opts"><label><input type="radio" name="c" checked>密钥对</label><label><input type="radio" name="c">密码</label></div></div>',
+    );
+    const { elements } = extractPage(doc, dom);
+    expect(elements[0]).toBe(doc.getElementById('opts'));
   });
 });
 

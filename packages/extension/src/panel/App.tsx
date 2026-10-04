@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ExtHello } from '@pixelweb/shared';
 import { Icon } from '@web/components/Icon';
-import { ApiError, hello, type ServerConfig } from '../lib/api';
-import { loadServer, loadThread, panelWindowId, saveThread, type Thread } from '../lib/chrome';
+import { buildMatcher, type TermMatcher } from '@web/lib/terms';
+import { ApiError, hello, terms as fetchTerms, type ServerConfig } from '../lib/api';
+import { loadCaptures, loadServer, loadThread, panelWindowId, saveThread, watchCaptures, type CaptureRecord, type Thread } from '../lib/chrome';
 import { Composer } from './Composer';
 import { Setup } from './Setup';
 import { ThreadView } from './ThreadView';
@@ -19,6 +20,8 @@ export function App() {
   const [windowId, setWindowId] = useState<number>();
   const [thread, setThreadState] = useState<Thread | null>(null);
   const guide = useGuide(server, thread?.sessionID);
+  const [captures, setCaptures] = useState<CaptureRecord[]>([]);
+  const [terms, setTerms] = useState<TermMatcher | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const pinned = useRef(true);
 
@@ -43,6 +46,20 @@ export function App() {
   useEffect(() => {
     if (server) void check(server);
   }, [server, check]);
+
+  // knowledge terms become links to their card; without them replies are just plain text
+  useEffect(() => {
+    setTerms(null);
+    if (server) fetchTerms(server).then((list) => setTerms(buildMatcher(list)), () => undefined);
+  }, [server]);
+
+  useEffect(() => {
+    setCaptures([]);
+    const id = thread?.sessionID;
+    if (!id) return;
+    void loadCaptures(id).then(setCaptures);
+    return watchCaptures(id, setCaptures);
+  }, [thread?.sessionID]);
 
   const setThread = (t: Thread | null) => {
     setThreadState(t);
@@ -130,10 +147,14 @@ export function App() {
           pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
         }}
       >
-        {thread ? <ThreadView guide={guide} root={info?.projectRoot} origin={server.origin} /> : <Welcome project={info ? basename(info.projectRoot) : ''} />}
+        {thread ? (
+          <ThreadView guide={guide} root={info?.projectRoot} origin={server.origin} captures={captures} terms={terms} />
+        ) : (
+          <Welcome project={info ? basename(info.projectRoot) : ''} />
+        )}
       </div>
 
-      <Composer server={server} thread={thread} busy={guide.busy} onStarted={setThread} />
+      <Composer server={server} thread={thread} busy={guide.busy} windowId={windowId} onStarted={setThread} />
     </div>
   );
 }
@@ -149,7 +170,10 @@ function Welcome({ project }: { project: string }) {
         </li>
         <li>发送后，PixelWeb 结合{project ? `项目 ${project}` : '当前项目'}告诉你每一项怎么填、要注意什么。</li>
       </ol>
-      <p className="muted small">分好几步的向导，填完一页可以点「捕捉下一页」接着问。插件只读页面，不会替你填写或点击。</p>
+      <p className="muted small">
+        分好几步的向导，填完一页可以点「捕捉下一页」接着问。回答里的字段标签点一下，页面上就会标出那一项。插件只读页面，不会替你填写或点击。
+      </p>
+      <p className="muted small">别的网站，或者只想问页面上的一部分：在页面上点右键，选「用 PixelWeb 向导看这一页」或「解释选中的部分」。</p>
     </div>
   );
 }

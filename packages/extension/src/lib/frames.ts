@@ -12,6 +12,8 @@ export interface FieldOrigin {
 export interface Draft {
   capture: PageCapture;
   origins: Record<string, FieldOrigin>;
+  /** refs of the fields inside the user's selection */
+  selected: string[];
 }
 
 const MAX_FIELDS = 150;
@@ -33,12 +35,14 @@ export function mergeFrames(frames: { frameId: number; result: FrameCapture | nu
 
   const fields: CapturedField[] = [];
   const origins: Record<string, FieldOrigin> = {};
+  const selected: string[] = [];
   for (const { frameId, result } of ok) {
     result.fields.forEach((field, index) => {
       if (fields.length >= MAX_FIELDS) return;
       const ref = `f${fields.length + 1}`;
       fields.push({ ref, ...field });
       origins[ref] = { frameId, index };
+      if (result.selected?.includes(index)) selected.push(ref);
     });
   }
 
@@ -73,11 +77,21 @@ export function mergeFrames(frames: { frameId: number; result: FrameCapture | nu
     redactions: 0,
     capturedAt: now,
   };
-  return { capture: redactCapture(capture), origins };
+  return { capture: redactCapture(capture), origins, selected };
 }
 
-/** What is sent: the draft minus the fields the user took out, and the text only if they kept it. */
-export function finalCapture(draft: Draft, removed: ReadonlySet<string>, includeText: boolean): PageCapture {
+export interface SendOptions {
+  /** fields the user took out of the preview */
+  removed: ReadonlySet<string>;
+  includeText: boolean;
+  /** only the selected part: its fields and the selected text, not the whole page */
+  selectionOnly: boolean;
+}
+
+/** What is sent: the draft as the user trimmed it in the preview. */
+export function finalCapture(draft: Draft, opts: SendOptions): PageCapture {
   const c = draft.capture;
-  return { ...c, fields: c.fields.filter((f) => !removed.has(f.ref)), text: includeText ? c.text : '' };
+  const only = opts.selectionOnly && !!c.selection;
+  const fields = c.fields.filter((f) => !opts.removed.has(f.ref) && (!only || draft.selected.includes(f.ref)));
+  return { ...c, fields, text: opts.includeText && !only ? c.text : '' };
 }

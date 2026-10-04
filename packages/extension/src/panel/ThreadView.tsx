@@ -1,9 +1,21 @@
-import { Fragment, useMemo } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import type { OcAssistantMessage, OcMessageWithParts, OcPart, OcPermission } from '@pixelweb/shared';
 import { MarkdownView, type MarkdownRender } from '@web/components/MarkdownView';
-import { readPrompt, refChip, type PromptView } from '../lib/prompt';
+import { cardLink } from '@web/lib/knowledge';
+import type { TermMatcher } from '@web/lib/terms';
+import { locateField, NO_ACCESS, targetTab, type CaptureRecord } from '../lib/chrome';
+import { readPrompt, type PromptView } from '../lib/prompt';
+import { sameRefs, segments } from '../lib/segments';
 import { toolLine } from '../lib/tools';
 import type { GuideState } from './useGuide';
+
+/** What a reply's ⟦fN⟧ refer to: the labels from the last capture before it, and where that capture found them. */
+interface RefContext {
+  refs: Record<string, string>;
+  record?: CaptureRecord;
+}
+
+const NO_LABEL = '（无标签）';
 
 const textOf = (parts: OcPart[]) =>
   parts
@@ -11,17 +23,55 @@ const textOf = (parts: OcPart[]) =>
     .map((p) => p.text)
     .join('\n');
 
-/** The conversation: each capture as a one-line page chip, replies as markdown with ⟦fN⟧ as field tags. */
-export function ThreadView({ guide, root, origin }: { guide: GuideState; root?: string; origin: string }) {
+/**
+ * The conversation: each capture as a one-line page chip, replies as markdown
+ * where ⟦fN⟧ is a tag that outlines the field on the page and knowledge terms
+ * link to their card in PixelWeb.
+ */
+export function ThreadView({
+  guide,
+  root,
+  origin,
+  captures,
+  terms,
+}: {
+  guide: GuideState;
+  root?: string;
+  origin: string;
+  captures: CaptureRecord[];
+  terms: TermMatcher | null;
+}) {
+  const [notice, setNotice] = useState('');
+  useEffect(() => {
+    if (!notice) return;
+    const t = setTimeout(() => setNotice(''), 6000);
+    return () => clearTimeout(t);
+  }, [notice]);
+
+  const locate = async (ref: string, ctx: RefContext) => {
+    setNotice('');
+    const label = ctx.refs[ref] === NO_LABEL ? '' : (ctx.refs[ref] ?? '');
+    try {
+      const tab = await targetTab();
+      // the recorded element only counts in the tab it was captured from
+      const rec = ctx.record?.tabId === tab.id ? ctx.record : undefined;
+      const at = rec?.origins[ref];
+      const found = await locateField(tab.id, { stamp: rec?.stamp, index: at?.index, label }, at?.frameId);
+      if (!found) setNotice(`页面上没找到「${label || ref}」：可能换了页面，或者页面变了。重新捕捉后再点。`);
+    } catch {
+      setNotice(NO_ACCESS);
+    }
+  };
+
   // a capture renumbers the fields: each reply's ⟦fN⟧ means the last capture before it
-  let refs: Record<string, string> = {};
+  let ctx: RefContext = { refs: {} };
   const turns = guide.messages.map((m) => {
     if (m.info.role === 'user') {
       const view = readPrompt(textOf(m.parts));
-      if (view.page) refs = view.refs;
+      if (view.page) ctx = { refs: view.refs, record: [...captures].reverse().find((r) => sameRefs(r.labels, view.refs)) };
       return <UserTurn key={m.info.id} view={view} />;
     }
-    return <AssistantTurn key={m.info.id} msg={m} refs={refs} root={root} />;
+    return <AssistantTurn key={m.info.id} msg={m} ctx={ctx} root={root} origin={origin} terms={terms} onLocate={locate} />;
   });
   const last = guide.messages[guide.messages.length - 1];
   const waiting = guide.busy && (!last || last.info.role === 'user' || !last.parts.some((p) => p.type === 'text' && (p as { text?: string }).text));
@@ -36,6 +86,7 @@ export function ThreadView({ guide, root, origin }: { guide: GuideState; root?: 
       {guide.error && <div className="banner bad">{guide.error}</div>}
       {guide.streamError && <div className="banner bad">{guide.streamError}</div>}
       {!guide.opencode && <div className="banner warn">PixelWeb 连不上 OpenCode，回答会在连上后继续。</div>}
+      {notice && <div className="notice">{notice}</div>}
     </div>
   );
 }
@@ -56,8 +107,25 @@ function UserTurn({ view }: { view: PromptView }) {
   );
 }
 
-function AssistantTurn({ msg, refs, root }: { msg: OcMessageWithParts; refs: Record<string, string>; root?: string }) {
-  const render = useMemo<MarkdownRender>(() => ({ text: (text, key) => <RefText key={key} text={text} refs={refs} /> }), [refs]);
+function AssistantTurn({
+  msg,
+  ctx,
+  root,
+  origin,
+  terms,
+  onLocate,
+}: {
+  msg: OcMessageWithParts;
+  ctx: RefContext;
+  root?: string;
+  origin: string;
+  terms: TermMatcher | null;
+  onLocate: (ref: string, ctx: RefContext) => void;
+}) {
+  const render = useMemo<MarkdownRender>(
+    () => ({ text: (text, key) => <RichText key={key} text={text} ctx={ctx} origin={origin} terms={terms} onLocate={onLocate} /> }),
+    [ctx, origin, terms, onLocate],
+  );
   const error = (msg.info as OcAssistantMessage).error;
   return (
     <div className="turn assistant">
@@ -90,21 +158,36 @@ function AssistantTurn({ msg, refs, root }: { msg: OcMessageWithParts; refs: Rec
   );
 }
 
-/** Text with each ⟦f3⟧ as a tag. */
-function RefText({ text, refs }: { text: string; refs: Record<string, string> }) {
-  if (!text.includes('⟦')) return <>{text}</>;
-  const parts = text.split(/⟦(f\d+)⟧/);
+/** Reply text with each ⟦f3⟧ as a button that outlines the field, and knowledge terms as links to their card. */
+function RichText({
+  text,
+  ctx,
+  origin,
+  terms,
+  onLocate,
+}: {
+  text: string;
+  ctx: RefContext;
+  origin: string;
+  terms: TermMatcher | null;
+  onLocate: (ref: string, ctx: RefContext) => void;
+}) {
   return (
     <>
-      {parts.map((s, i) =>
-        i % 2 === 0 ? (
-          <Fragment key={i}>{s}</Fragment>
-        ) : (
-          <span key={i} className="ref" title={refs[s] ? `页面上的「${refs[s]}」` : '页面上的字段'}>
-            {refChip(s, refs[s], parts[i + 1] ?? '')}
-          </span>
-        ),
-      )}
+      {segments(text, ctx.refs, terms).map((s, i) => {
+        if (s.kind === 'text') return <Fragment key={i}>{s.text}</Fragment>;
+        if (s.kind === 'term')
+          return (
+            <a key={i} className="term" href={cardLink(origin, s.cardId)} target="_blank" rel="noreferrer" title="在 PixelWeb 里看这个概念">
+              {s.text}
+            </a>
+          );
+        return (
+          <button key={i} type="button" className="ref" title={`在页面上找到${s.label ? `「${s.label}」` : '这个字段'}`} onClick={() => onLocate(s.ref, ctx)}>
+            {s.chip}
+          </button>
+        );
+      })}
     </>
   );
 }

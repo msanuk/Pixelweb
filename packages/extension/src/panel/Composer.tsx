@@ -1,14 +1,14 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { CapturedField } from '@pixelweb/shared';
 import { MASK, VENDOR_NAMES } from '@pixelweb/shared/capture';
 import { abortGuide, promptGuide, startGuide, type ServerConfig } from '../lib/api';
-import { captureTab, targetTab, type Thread } from '../lib/chrome';
-import { finalCapture, type Draft } from '../lib/frames';
+import { addCapture, captureTab, takeCaptureRequest, targetTab, watchCaptureRequests, type Thread } from '../lib/chrome';
+import { finalCapture, type Draft, type SendOptions } from '../lib/frames';
 
-interface DraftState {
+interface DraftState extends SendOptions {
   draft: Draft;
-  removed: Set<string>;
-  includeText: boolean;
+  /** the tab it was read from, so a reply's ⟦fN⟧ can find the field there later */
+  tabId: number;
 }
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -22,11 +22,13 @@ export function Composer({
   server,
   thread,
   busy,
+  windowId,
   onStarted,
 }: {
   server: ServerConfig;
   thread: Thread | null;
   busy: boolean;
+  windowId?: number;
   onStarted: (t: Thread) => void;
 }) {
   const [text, setText] = useState('');
@@ -34,12 +36,14 @@ export function Composer({
   const [phase, setPhase] = useState<'idle' | 'capturing' | 'sending'>('idle');
   const [error, setError] = useState('');
 
-  const capture = async () => {
+  /** `tabId`: a tab the right-click menu named; `selectionOnly`: start with only the selection ticked */
+  const capture = async (tabId?: number, selectionOnly = false) => {
     setError('');
     setPhase('capturing');
     try {
-      const tab = await targetTab();
-      setDraft({ draft: await captureTab(tab.id), removed: new Set(), includeText: true });
+      const id = tabId ?? (await targetTab()).id;
+      const d = await captureTab(id);
+      setDraft({ draft: d, tabId: id, removed: new Set(), includeText: true, selectionOnly: selectionOnly && !!d.capture.selection });
     } catch (e) {
       setError(message(e));
     } finally {
@@ -47,19 +51,40 @@ export function Composer({
     }
   };
 
+  // the right-click menu: a request may be waiting from before this panel opened, or arrive while it is open
+  const latest = useRef(capture);
+  latest.current = capture;
+  useEffect(() => {
+    if (windowId === undefined) return;
+    const take = () =>
+      void takeCaptureRequest(windowId).then((req) => {
+        if (req) void latest.current(req.tabId, req.selection);
+      });
+    take();
+    return watchCaptureRequests(windowId, take);
+  }, [windowId]);
+
   const send = async () => {
     if (phase !== 'idle' || busy) return;
     const question = text.trim() || undefined;
-    const page = draft ? finalCapture(draft.draft, draft.removed, draft.includeText) : undefined;
+    const page = draft ? finalCapture(draft.draft, draft) : undefined;
     if (!thread && !page) return setError('先捕捉一页：对话要从一个页面开始。');
     if (!page && !question) return;
     setError('');
     setPhase('sending');
     try {
-      if (thread) await promptGuide(server, thread.sessionID, { capture: page, question });
+      let sessionID = thread?.sessionID;
+      if (sessionID) await promptGuide(server, sessionID, { capture: page, question });
       else {
         const r = await startGuide(server, { capture: page, question });
+        sessionID = r.sessionID;
         onStarted({ sessionID: r.sessionID, title: r.title });
+      }
+      if (page && draft) {
+        // where each sent field was, under the label the prompt shows for it
+        const labels = Object.fromEntries(page.fields.map((f) => [f.ref, f.label || '（无标签）']));
+        const origins = Object.fromEntries(page.fields.map((f) => [f.ref, draft.draft.origins[f.ref]]));
+        await addCapture(sessionID, { tabId: draft.tabId, stamp: page.capturedAt, origins, labels });
       }
       setText('');
       setDraft(null);
@@ -126,7 +151,8 @@ function valueText(f: CapturedField): string {
 /** What is about to be sent, with a way to leave fields or the page text out. */
 function DraftCard({ state, onChange }: { state: DraftState; onChange: (s: DraftState) => void }) {
   const c = state.draft.capture;
-  const kept = c.fields.filter((f) => !state.removed.has(f.ref)).length;
+  const sent = finalCapture(state.draft, state);
+  const inSelection = new Set(state.draft.selected);
   let host = '';
   try {
     host = new URL(c.url).hostname;
@@ -144,13 +170,21 @@ function DraftCard({ state, onChange }: { state: DraftState; onChange: (s: Draft
         <strong>{[c.vendor ? VENDOR_NAMES[c.vendor] : '', c.heading || c.title || host].filter(Boolean).join(' · ')}</strong>
       </div>
       <div className="muted small">
-        {kept} 个字段 · 正文 {state.includeText ? c.text.length : 0} 字{c.redactions ? ` · 已隐藏 ${c.redactions} 处敏感信息` : ''}
+        {sent.fields.length} 个字段 · {state.selectionOnly ? `选中的文字 ${c.selection?.length ?? 0} 字` : `正文 ${sent.text.length} 字`}
+        {c.redactions ? ` · 已隐藏 ${c.redactions} 处敏感信息` : ''}
       </div>
+      {c.selection && (
+        <label className="check">
+          <input type="checkbox" checked={state.selectionOnly} onChange={(e) => onChange({ ...state, selectionOnly: e.target.checked })} />
+          只发选中的部分（{inSelection.size} 个字段、{c.selection.length} 字）
+        </label>
+      )}
       {c.fields.length === 0 && <div className="banner warn">这一页没找到表单字段，只会发送页面正文。</div>}
       <details>
         <summary>看看要发什么</summary>
         <ul className="fields">
           {c.fields.map((f) => {
+            if (state.selectionOnly && !inSelection.has(f.ref)) return null;
             const off = state.removed.has(f.ref);
             return (
               <li key={f.ref} className={off ? 'off' : ''}>
@@ -168,10 +202,12 @@ function DraftCard({ state, onChange }: { state: DraftState; onChange: (s: Draft
             );
           })}
         </ul>
-        <label className="check">
-          <input type="checkbox" checked={state.includeText} onChange={(e) => onChange({ ...state, includeText: e.target.checked })} />
-          附带页面正文（{c.text.length} 字）
-        </label>
+        {!state.selectionOnly && (
+          <label className="check">
+            <input type="checkbox" checked={state.includeText} onChange={(e) => onChange({ ...state, includeText: e.target.checked })} />
+            附带页面正文（{c.text.length} 字）
+          </label>
+        )}
       </details>
       <p className="muted small">页面内容会经 PixelWeb 发给模型提供商；像密钥、密码的值已经换成 {MASK}。</p>
     </div>
