@@ -15,6 +15,7 @@ import type {
   OcTodo,
 } from '@pixelweb/shared';
 import { api } from './api';
+import { appendDelta } from './delta';
 import { displayTitle } from './format';
 import { normalizePermission, repliedPermissionID } from './permissions';
 
@@ -306,6 +307,12 @@ function summarise(ev: OcEvent): string {
 
 export function applyEvent(ev: OcEvent, at: number): void {
   const p = ev.properties as Record<string, any>;
+  // one event per streamed chunk: kept out of the feed, and no update when the part isn't loaded
+  if (ev.type === 'message.part.delta') {
+    const messages = appendDelta(state.messages, p.sessionID, p.messageID, p.partID, p.field, p.delta);
+    if (messages !== state.messages) setState({ messages });
+    return;
+  }
   const sessionID: string | undefined = p.sessionID ?? p.info?.sessionID ?? p.part?.sessionID ?? p.info?.id;
 
   const feedItem: FeedItem = { at, type: ev.type, sessionID, summary: summarise(ev) };
@@ -394,7 +401,8 @@ function upsertPart(all: State['messages'], part: OcPart, delta?: string): State
     const idx = m.parts.findIndex((x) => x.id === part.id);
     if (idx < 0) return { ...m, parts: [...m.parts, part] };
     const prev = m.parts[idx];
-    // streaming text: opencode sends the full part; delta is informational. Prefer full text.
+    // streaming text before 1.18: opencode sends the full part; delta is informational. Prefer full text.
+    // (1.18+ streams through message.part.delta instead, see appendDelta)
     const merged = delta && 'text' in part && !(part as any).text ? { ...part, text: ((prev as any).text ?? '') + delta } : part;
     return { ...m, parts: m.parts.map((x, i) => (i === idx ? merged : x)) };
   });
