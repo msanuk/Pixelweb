@@ -17,6 +17,7 @@ export const CATEGORIES: { id: CategoryFilter; label: string }[] = [
   { id: 'web', label: 'Web' },
   { id: 'tooling', label: '工具链' },
   { id: 'architecture', label: '架构' },
+  { id: 'cloud', label: '云' },
   { id: 'general', label: '通用' },
 ];
 

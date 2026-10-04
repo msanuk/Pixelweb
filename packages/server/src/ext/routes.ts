@@ -2,12 +2,13 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 import type { ExtHello, GuideResponse, GuideStreamMessage } from '@pixelweb/shared';
 import { redactCapture } from '@pixelweb/shared/capture';
 import type { PixelwebConfig } from '../config.js';
-import type { GlobalEvent, OpencodeClient } from '../opencode/client.js';
+import type { GlobalEvent, OcConfig, OcProviders, OpencodeClient } from '../opencode/client.js';
 import { followUpSettings } from '../opencode/followup.js';
 import type { KnowledgeStore } from '../knowledge/store.js';
 import type { ExtTokenStore } from './tokens.js';
 import type { GuideRegistry } from './guides.js';
-import { GUIDE_PERMISSION, GUIDE_SYSTEM_PROMPT, buildGuidePrompt, guideTitle, parseGuideRequest, sessionOfEvent } from './prompt.js';
+import { defaultModelId, describeModel } from './models.js';
+import { GUIDE_PERMISSION, GUIDE_SYSTEM_PROMPT, buildGuidePrompt, guideTitle, parseGuideRequest, screenshotPart, sessionOfEvent } from './prompt.js';
 
 export interface ExtDeps {
   version: string;
@@ -20,6 +21,9 @@ export interface ExtDeps {
 }
 
 const NOT_A_GUIDE = '不是指导会话';
+/** a capture is small; one with a screenshot is a few hundred KB, the server's 1 MB default is too tight */
+const GUIDE_BODY_LIMIT = 6 * 1024 * 1024;
+const MODELS_TTL = 5 * 60_000;
 const errorText = (e: unknown) => String(e instanceof Error ? e.message : e);
 const badGateway = (reply: FastifyReply, e: unknown) => reply.code(502).send({ error: errorText(e) });
 
@@ -32,6 +36,20 @@ const badGateway = (reply: FastifyReply, e: unknown) => reply.code(502).send({ e
  */
 export function registerExtRoutes(app: FastifyInstance, deps: ExtDeps): void {
   const { opencode, cfg, tokens, guides } = deps;
+
+  // which model a guide runs on and whether it reads images, for the extension's screenshot option
+  let models: { at: number; providers: OcProviders; config: OcConfig } | null = null;
+  const loadModels = async () => {
+    if (!models || Date.now() - models.at > MODELS_TTL) {
+      const [providers, config] = await Promise.all([opencode.providers(), opencode.config().catch((): OcConfig => ({}))]);
+      models = { at: Date.now(), providers, config };
+    }
+    return models;
+  };
+  const defaultModel = () =>
+    loadModels()
+      .then((m) => describeModel(m.providers, defaultModelId(m.providers, m.config)))
+      .catch(() => null);
 
   // -- pairing, from 设置
   app.get('/api/ext-tokens', async () => tokens.list());
@@ -51,10 +69,11 @@ export function registerExtRoutes(app: FastifyInstance, deps: ExtDeps): void {
     projectRoot: cfg.projectRoot,
     opencodeConnected: opencode.isConnected,
     device: req.extToken?.name ?? '',
+    model: await defaultModel(),
   }));
   app.get('/api/ext/terms', async () => deps.knowledge().terms());
 
-  app.post('/api/ext/guide', async (req, reply) => {
+  app.post('/api/ext/guide', { bodyLimit: GUIDE_BODY_LIMIT }, async (req, reply) => {
     const parsed = parseGuideRequest(req.body);
     if ('error' in parsed) return reply.code(400).send(parsed);
     if (!parsed.capture) return reply.code(400).send({ error: 'capture required' });
@@ -66,7 +85,10 @@ export function registerExtRoutes(app: FastifyInstance, deps: ExtDeps): void {
       await opencode.promptAsync(
         session.id,
         {
-          parts: [{ type: 'text', text: buildGuidePrompt({ ...parsed, capture }, { first: true, projectRoot: directory }) }],
+          parts: [
+            { type: 'text', text: buildGuidePrompt({ ...parsed, capture }, { first: true, projectRoot: directory }) },
+            ...(parsed.screenshot ? [screenshotPart(parsed.screenshot)] : []),
+          ],
           system: GUIDE_SYSTEM_PROMPT,
         },
         directory,
@@ -78,7 +100,7 @@ export function registerExtRoutes(app: FastifyInstance, deps: ExtDeps): void {
     }
   });
 
-  app.post<{ Params: { id: string } }>('/api/ext/guide/:id/prompt', async (req, reply) => {
+  app.post<{ Params: { id: string } }>('/api/ext/guide/:id/prompt', { bodyLimit: GUIDE_BODY_LIMIT }, async (req, reply) => {
     const guide = guides.get(req.params.id);
     if (!guide) return reply.code(404).send({ error: NOT_A_GUIDE });
     const parsed = parseGuideRequest(req.body);
@@ -92,7 +114,8 @@ export function registerExtRoutes(app: FastifyInstance, deps: ExtDeps): void {
         .then(followUpSettings)
         .catch(() => ({}));
       const text = buildGuidePrompt({ ...parsed, capture }, { first: false });
-      await opencode.promptAsync(req.params.id, { ...inherited, parts: [{ type: 'text', text }], system: GUIDE_SYSTEM_PROMPT }, guide.directory);
+      const parts = [{ type: 'text' as const, text }, ...(parsed.screenshot ? [screenshotPart(parsed.screenshot)] : [])];
+      await opencode.promptAsync(req.params.id, { ...inherited, parts, system: GUIDE_SYSTEM_PROMPT }, guide.directory);
       return { ok: true };
     } catch (e) {
       return badGateway(reply, e);
@@ -159,11 +182,15 @@ export function registerExtRoutes(app: FastifyInstance, deps: ExtDeps): void {
         opencode.listPermissions(guide.directory).catch(() => [] as unknown[]),
       ]);
       const state = status[id]?.type;
+      // the session keeps the model of its last turn; before its first one is written, the default
+      const last = followUpSettings(messages).model;
+      const model = last ? await loadModels().then((m) => describeModel(m.providers, `${last.providerID}/${last.modelID}`)).catch(() => null) : await defaultModel();
       write({
         type: 'snapshot',
         messages,
         busy: !!state && state !== 'idle',
         permissions: permissions.filter((p) => (p as { sessionID?: string })?.sessionID === id),
+        model,
       });
       write({ type: 'opencode.status', connected: opencode.isConnected });
       live = true;

@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { defineConfig, type Plugin } from 'vite';
@@ -37,4 +38,6 @@ export default defineConfig(({ mode }) => ({
       output: { entryFileNames: '[name].js', chunkFileNames: 'chunks/[name]-[hash].js', assetFileNames: 'assets/[name]-[hash][extname]' },
     },
   },
+  // the extraction tests' iframes point at real sites: happy-dom must not fetch them
+  test: { environmentOptions: { happyDOM: { settings: { disableIframePageLoading: true } } } },
 }));

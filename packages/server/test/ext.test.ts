@@ -10,8 +10,10 @@ import {
   guideTitle,
   parseCapture,
   parseGuideRequest,
+  screenshotPart,
   sessionOfEvent,
 } from '../src/ext/prompt.js';
+import { defaultModelId, describeModel } from '../src/ext/models.js';
 import { ExtTokenStore } from '../src/ext/tokens.js';
 import { GuideRegistry } from '../src/ext/guides.js';
 
@@ -77,6 +79,53 @@ describe('parseGuideRequest', () => {
     expect(parseGuideRequest({ question: 42 })).toHaveProperty('error');
     expect(parseGuideRequest({ question: 'x'.repeat(2001) })).toHaveProperty('error');
   });
+
+  it('takes a screenshot only as an image data: URL, and only with a capture', () => {
+    const shot = 'data:image/jpeg;base64,/9j/4AAQSkZJRg==';
+    expect(parseGuideRequest({ capture: capture(), screenshot: shot })).toEqual({ capture: capture(), screenshot: shot });
+    expect(parseGuideRequest({ question: '这是什么', screenshot: shot })).toHaveProperty('error');
+    expect(parseGuideRequest({ capture: capture(), screenshot: 'https://evil.test/x.png' })).toHaveProperty('error');
+    expect(parseGuideRequest({ capture: capture(), screenshot: 'data:text/html;base64,PHNjcmlwdD4=' })).toHaveProperty('error');
+    expect(parseGuideRequest({ capture: capture(), screenshot: `data:image/png;base64,${'A'.repeat(4_000_001)}` })).toHaveProperty('error');
+  });
+});
+
+describe('screenshotPart', () => {
+  it('attaches the screenshot as an image file', () => {
+    expect(screenshotPart('data:image/jpeg;base64,AAAA')).toEqual({ type: 'file', mime: 'image/jpeg', url: 'data:image/jpeg;base64,AAAA', filename: 'screenshot.jpg' });
+    expect(screenshotPart('data:image/png;base64,AAAA')).toMatchObject({ mime: 'image/png', filename: 'screenshot.png' });
+  });
+});
+
+describe('guide models', () => {
+  const providers = {
+    providers: [
+      {
+        id: 'opencode',
+        models: {
+          'big-pickle': { id: 'big-pickle', name: 'Big Pickle', capabilities: { input: { image: false } } },
+          'space-bunny-free': { id: 'space-bunny-free', name: 'Space Bunny', capabilities: { input: { image: true } } },
+        },
+      },
+      { id: 'local', models: { qwen: {} } },
+    ],
+    default: { opencode: 'big-pickle', local: 'qwen' },
+  };
+
+  it("picks the model OpenCode would: the default agent's, the configured one, a provider's default", () => {
+    expect(defaultModelId(providers, { model: 'opencode/space-bunny-free', agent: { build: { model: 'local/qwen' } } })).toBe('local/qwen');
+    expect(defaultModelId(providers, { model: 'opencode/space-bunny-free', default_agent: 'plan', agent: { build: { model: 'local/qwen' } } })).toBe('opencode/space-bunny-free');
+    expect(defaultModelId(providers, {})).toBe('opencode/big-pickle');
+    expect(defaultModelId({ providers: [] }, {})).toBeNull();
+  });
+
+  it('says whether the model reads images, or that it does not know', () => {
+    expect(describeModel(providers, 'opencode/space-bunny-free')).toEqual({ id: 'opencode/space-bunny-free', name: 'Space Bunny', image: true });
+    expect(describeModel(providers, 'opencode/big-pickle')?.image).toBe(false);
+    expect(describeModel(providers, 'local/qwen')).toEqual({ id: 'local/qwen', name: 'qwen', image: null });
+    expect(describeModel(providers, 'gone/model')).toEqual({ id: 'gone/model', name: 'model', image: null });
+    expect(describeModel(providers, null)).toBeNull();
+  });
 });
 
 describe('formatCapture', () => {
@@ -105,6 +154,11 @@ describe('buildGuidePrompt', () => {
     expect(p).toContain('当前项目目录：/srv/app');
     expect(p).toContain('不可信数据');
     expect(p).toContain('<page-data>');
+  });
+
+  it('mentions an attached screenshot', () => {
+    expect(buildGuidePrompt({ capture: capture(), screenshot: 'data:image/jpeg;base64,AA' }, { first: true })).toMatch(/<\/page-data>\n\n另附一张这一页可见部分的截图/);
+    expect(buildGuidePrompt({ capture: capture() }, { first: true })).not.toContain('截图');
   });
 
   it('marks a later capture as the next page, and sends a bare question as is', () => {

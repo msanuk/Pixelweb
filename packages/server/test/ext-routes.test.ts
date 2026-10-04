@@ -40,6 +40,15 @@ class FakeOpencode extends EventEmitter {
   async abortSession(id: string, directory?: string) {
     this.calls.push({ op: 'abort', id, directory });
   }
+  async providers() {
+    return {
+      providers: [{ id: 'opencode', models: { 'big-pickle': { name: 'Big Pickle', capabilities: { input: { image: false } } }, eye: { name: 'Eye', capabilities: { input: { image: true } } } } }],
+      default: { opencode: 'big-pickle' },
+    };
+  }
+  async config() {
+    return { model: 'opencode/big-pickle' };
+  }
 }
 
 const capture: PageCapture = {
@@ -85,7 +94,13 @@ const post = (url: string, payload: unknown, headers = auth) => app.inject({ met
 describe('/api/ext', () => {
   it('says hello to a paired extension', async () => {
     const res = await app.inject({ method: 'GET', url: '/api/ext/hello', headers: auth });
-    expect(res.json()).toEqual({ version: 't', projectRoot: '/srv/app', opencodeConnected: true, device: 'Chrome' });
+    expect(res.json()).toEqual({
+      version: 't',
+      projectRoot: '/srv/app',
+      opencodeConnected: true,
+      device: 'Chrome',
+      model: { id: 'opencode/big-pickle', name: 'Big Pickle', image: false },
+    });
     expect((await app.inject({ method: 'GET', url: '/api/ext/terms', headers: auth })).json()).toEqual([{ term: 'VPC', cardId: 'vpc' }]);
   });
 
@@ -95,10 +110,20 @@ describe('/api/ext', () => {
     const [create, prompt] = oc.calls;
     expect(create).toMatchObject({ op: 'create', directory: '/srv/app', body: { permission: GUIDE_PERMISSION } });
     expect(prompt).toMatchObject({ op: 'prompt', id: 'ses_g1', directory: '/srv/app', body: { system: GUIDE_SYSTEM_PROMPT } });
-    const text = (prompt.body as PromptInput).parts[0].text;
-    expect(text).toContain(`AccessKey Secret（文本）当前值：${MASK}`);
-    expect(text).not.toContain('q7Xk2Lp9');
+    const text = (prompt.body as PromptInput).parts[0] as { text: string };
+    expect(text.text).toContain(`AccessKey Secret（文本）当前值：${MASK}`);
+    expect(text.text).not.toContain('q7Xk2Lp9');
     expect(guides.get('ses_g1')?.directory).toBe('/srv/app');
+  });
+
+  it('sends a screenshot to the model as an image, even one over the default body limit', async () => {
+    const screenshot = `data:image/jpeg;base64,${'A'.repeat(1_500_000)}`;
+    expect((await post('/api/ext/guide', { capture, screenshot })).statusCode).toBe(200);
+    const parts = (oc.calls.find((c) => c.op === 'prompt')!.body as PromptInput).parts;
+    expect(parts[1]).toEqual({ type: 'file', mime: 'image/jpeg', url: screenshot, filename: 'screenshot.jpg' });
+    oc.calls = [];
+    expect((await post('/api/ext/guide/ses_g1/prompt', { capture, screenshot })).statusCode).toBe(200);
+    expect((oc.calls.find((c) => c.op === 'prompt')!.body as PromptInput).parts).toHaveLength(2);
   });
 
   it('needs a capture to start, and a capture or question to continue', async () => {
@@ -139,7 +164,9 @@ describe('/api/ext', () => {
 describe('guide event stream', () => {
   it('sends a snapshot, then only this session’s events', async () => {
     await post('/api/ext/guide', { capture });
-    oc.history = [{ info: { id: 'm1', sessionID: 'ses_g1', role: 'user', time: { created: 1 } }, parts: [] }] as OcMessageWithParts[];
+    oc.history = [
+      { info: { id: 'm1', sessionID: 'ses_g1', role: 'user', time: { created: 1 }, model: { providerID: 'opencode', modelID: 'eye' } }, parts: [] },
+    ] as OcMessageWithParts[];
     await app.listen({ port: 0, host: '127.0.0.1' });
     const { port } = app.server.address() as { port: number };
     const abort = new AbortController();
@@ -158,7 +185,13 @@ describe('guide event stream', () => {
     };
     await next();
     await next();
-    expect(got[0]).toEqual({ type: 'snapshot', messages: oc.history, busy: true, permissions: [{ id: 'per_1', sessionID: 'ses_g1' }] });
+    expect(got[0]).toEqual({
+      type: 'snapshot',
+      messages: oc.history,
+      busy: true,
+      permissions: [{ id: 'per_1', sessionID: 'ses_g1' }],
+      model: { id: 'opencode/eye', name: 'Eye', image: true }, // the session's own model, not the default
+    });
     expect(got[1]).toEqual({ type: 'opencode.status', connected: true });
 
     const mine = { type: 'message.part.updated', properties: { part: { id: 'p1', sessionID: 'ses_g1', type: 'text', text: '这页' } } };

@@ -14,7 +14,19 @@ export interface Draft {
   origins: Record<string, FieldOrigin>;
   /** refs of the fields inside the user's selection */
   selected: string[];
+  /** origins of iframes on the page that no reader ran in: the extension may not read those sites */
+  unread: string[];
+  /** what the capture missed, for the user */
+  hints: string[];
 }
+
+const originOf = (url: string) => {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return '';
+  }
+};
 
 const MAX_FIELDS = 150;
 /** A sub-frame with less text than this and no fields is an ad, a tracker or a spacer. */
@@ -26,8 +38,8 @@ const MIN_FRAME_TEXT = 40;
  * secret masked before the user even sees the preview.
  */
 export function mergeFrames(frames: { frameId: number; result: FrameCapture | null | undefined }[], now = Date.now()): Draft {
-  const ok = frames
-    .filter((f): f is { frameId: number; result: FrameCapture } => !!f.result)
+  const read = frames.filter((f): f is { frameId: number; result: FrameCapture } => !!f.result);
+  const ok = read
     .filter((f) => f.frameId === 0 || f.result.fields.length > 0 || f.result.text.length >= MIN_FRAME_TEXT)
     .sort((a, b) => (a.frameId === 0 ? -1 : b.frameId === 0 ? 1 : a.frameId - b.frameId));
   const top = ok[0]?.result;
@@ -77,7 +89,11 @@ export function mergeFrames(frames: { frameId: number; result: FrameCapture | nu
     redactions: 0,
     capturedAt: now,
   };
-  return { capture: redactCapture(capture), origins, selected };
+  // an iframe nobody read: its site is outside the extension's permissions (or the right-click's one page)
+  const readOrigins = new Set(read.map((f) => originOf(f.result.url)));
+  const unread = [...new Set(read.flatMap((f) => f.result.frames ?? []))].filter((o) => o && !readOrigins.has(o));
+  const hints = [...new Set(ok.flatMap((f) => f.result.hints ?? []))];
+  return { capture: redactCapture(capture), origins, selected, unread, hints };
 }
 
 export interface SendOptions {

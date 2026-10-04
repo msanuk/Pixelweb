@@ -31,9 +31,11 @@ describe('applyStream', () => {
         messages: [user('m1', '问题')],
         busy: true,
         permissions: [{ id: 'per1', sessionID: 's', permission: 'bash', patterns: ['ls'], tool: { messageID: 'm2', callID: 'c' } }],
+        model: { id: 'opencode/big-pickle', name: 'Big Pickle', image: false },
       },
     ]);
     expect(c.loaded).toBe(true);
+    expect(c.model).toEqual({ id: 'opencode/big-pickle', name: 'Big Pickle', image: false });
     expect(c.busy).toBe(true);
     expect(c.messages).toHaveLength(1);
     expect(c.permissions[0]).toMatchObject({ id: 'per1', type: 'bash', pattern: ['ls'] });
@@ -42,7 +44,7 @@ describe('applyStream', () => {
   it('streams a reply from message.part.delta, then takes the final part', () => {
     const part = { id: 'p1', sessionID: 's', messageID: 'm2', type: 'text', text: '' };
     let c = run([
-      { type: 'snapshot', messages: [user('m1', '问题')], busy: true, permissions: [] },
+      { type: 'snapshot', messages: [user('m1', '问题')], busy: true, permissions: [], model: null },
       ev('message.updated', { info: { id: 'm2', sessionID: 's', role: 'assistant', time: { created: 2 } } }),
       ev('message.part.updated', { part }),
       ev('message.part.delta', { sessionID: 's', messageID: 'm2', partID: 'p1', field: 'text', delta: '## 这页' }),

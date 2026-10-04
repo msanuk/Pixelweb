@@ -1,4 +1,4 @@
-import type { GuideStreamMessage, OcMessage, OcMessageWithParts, OcPart, OcPermission } from '@pixelweb/shared';
+import type { GuideModel, GuideStreamMessage, OcMessage, OcMessageWithParts, OcPart, OcPermission } from '@pixelweb/shared';
 import { normalizePermission, repliedPermissionID } from '@web/lib/permissions';
 
 /** One guide session as the side panel shows it, rebuilt from the server's SSE stream. */
@@ -13,6 +13,8 @@ export interface Conversation {
   opencode: boolean;
   /** the session's last error, e.g. the provider refusing the request */
   error?: string;
+  /** the model the session runs on; undefined until the snapshot, null if PixelWeb couldn't tell */
+  model?: GuideModel | null;
 }
 
 export const EMPTY: Conversation = { loaded: false, messages: [], busy: false, permissions: [], opencode: true };
@@ -27,6 +29,7 @@ export function applyStream(c: Conversation, m: GuideStreamMessage): Conversatio
         busy: m.busy,
         permissions: m.permissions.map((p) => normalizePermission(p as Record<string, unknown>)).filter((p): p is OcPermission => !!p),
         error: undefined,
+        model: m.model ?? null,
       };
     case 'opencode.status':
       return { ...c, opencode: m.connected };

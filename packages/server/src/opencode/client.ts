@@ -33,13 +33,40 @@ export interface GlobalEvent {
   payload: OcEvent;
 }
 
+/** An attachment: OpenCode passes it to the model as an image or file (a data: URL works). */
+export interface FilePartInput {
+  type: 'file';
+  mime: string;
+  url: string;
+  filename?: string;
+}
+
 export interface PromptInput {
-  parts: { type: 'text'; text: string }[];
+  parts: ({ type: 'text'; text: string } | FilePartInput)[];
   system?: string;
   model?: { providerID: string; modelID: string };
   agent?: string;
   variant?: string;
   tools?: Record<string, boolean>;
+}
+
+/** What PixelWeb reads of `GET /config/providers`. */
+export interface OcProviders {
+  providers: {
+    id: string;
+    models: Record<string, { id?: string; name?: string; limit?: OcModelLimit; capabilities?: { input?: { image?: boolean } } }>;
+  }[];
+  /** each provider's default model id */
+  default?: Record<string, string>;
+}
+
+/** What PixelWeb reads of `GET /config`. */
+export interface OcConfig {
+  compaction?: { auto?: boolean; reserved?: number };
+  /** "providerID/modelID" */
+  model?: string;
+  default_agent?: string;
+  agent?: Record<string, { model?: string } | undefined>;
 }
 
 export class OpencodeClient extends EventEmitter {
@@ -102,11 +129,11 @@ export class OpencodeClient extends EventEmitter {
   }
 
   /** Configured providers and their models (with token limits). */
-  providers(): Promise<{ providers: { id: string; models: Record<string, { id?: string; limit?: OcModelLimit }> }[] }> {
+  providers(): Promise<OcProviders> {
     return this.json('config/providers');
   }
 
-  config(): Promise<{ compaction?: { auto?: boolean; reserved?: number } }> {
+  config(): Promise<OcConfig> {
     return this.json('config');
   }
 

@@ -3,7 +3,7 @@ import path from 'node:path';
 import matter from 'gray-matter';
 import type { CardCategory, KnowledgeCard, KnowledgeIndexEntry, QuizItem } from '@pixelweb/shared';
 
-const CATEGORIES: CardCategory[] = ['ai', 'git', 'web', 'tooling', 'architecture', 'general'];
+const CATEGORIES: CardCategory[] = ['ai', 'git', 'web', 'tooling', 'architecture', 'cloud', 'general'];
 
 export function parseCard(raw: string, fallbackId: string): KnowledgeCard {
   const { data, content } = matter(raw);

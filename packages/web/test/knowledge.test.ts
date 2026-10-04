@@ -52,7 +52,7 @@ describe('facetCounts', () => {
   it('counts each facet against the search and the other facet only', () => {
     const { cat, mastery } = facetCounts(cards, { cat: 'git', mastery: 'unseen', q: '' }, records);
     // categories respect mastery=unseen: llm (ai), branch (git)
-    expect(cat).toEqual({ all: 2, ai: 1, git: 1, web: 0, tooling: 0, architecture: 0, general: 0 });
+    expect(cat).toEqual({ all: 2, ai: 1, git: 1, web: 0, tooling: 0, architecture: 0, cloud: 0, general: 0 });
     // mastery respects cat=git: commit (seen), branch (unseen)
     expect(mastery).toEqual({ all: 2, unseen: 1, seen: 1, learning: 0, mastered: 0 });
   });

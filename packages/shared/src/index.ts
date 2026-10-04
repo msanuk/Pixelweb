@@ -230,7 +230,7 @@ export interface ArchGraph {
 
 // ---- Knowledge cards
 
-export type CardCategory = 'ai' | 'git' | 'web' | 'tooling' | 'architecture' | 'general';
+export type CardCategory = 'ai' | 'git' | 'web' | 'tooling' | 'architecture' | 'cloud' | 'general';
 
 export interface QuizItem {
   q: string;
@@ -436,18 +436,30 @@ export interface ExtTokenCreated {
   info: ExtTokenInfo;
 }
 
+/** The model a guide runs on, and whether it can look at a screenshot (null: OpenCode doesn't say). */
+export interface GuideModel {
+  /** "providerID/modelID" */
+  id: string;
+  name: string;
+  image: boolean | null;
+}
+
 /** `GET /api/ext/hello`: the extension checks its token and shows where guides will run. */
 export interface ExtHello {
   version: string;
   projectRoot: string;
   opencodeConnected: boolean;
   device: string;
+  /** the model a new guide starts on; null if OpenCode couldn't be asked */
+  model: GuideModel | null;
 }
 
 /** `POST /api/ext/guide` starts a guide session; `POST /api/ext/guide/:id/prompt` continues it. */
 export interface GuideRequest {
   capture?: PageCapture;
   question?: string;
+  /** the visible part of the tab as a data: URL (JPEG or PNG); only with a capture, and never redacted */
+  screenshot?: string;
 }
 
 export interface GuideResponse {
@@ -457,7 +469,7 @@ export interface GuideResponse {
 
 /** What `GET /api/ext/guide/:id/events` streams, one per SSE `data:` line. */
 export type GuideStreamMessage =
-  | { type: 'snapshot'; messages: OcMessageWithParts[]; busy: boolean; permissions: unknown[] }
+  | { type: 'snapshot'; messages: OcMessageWithParts[]; busy: boolean; permissions: unknown[]; model: GuideModel | null }
   | { type: 'event'; event: OcEvent }
   | { type: 'opencode.status'; connected: boolean }
   | { type: 'error'; error: string };

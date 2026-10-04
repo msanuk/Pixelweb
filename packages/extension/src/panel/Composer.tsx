@@ -1,14 +1,19 @@
 import { useEffect, useRef, useState } from 'react';
-import type { CapturedField } from '@pixelweb/shared';
+import type { CapturedField, GuideModel } from '@pixelweb/shared';
 import { MASK, VENDOR_NAMES } from '@pixelweb/shared/capture';
 import { abortGuide, promptGuide, startGuide, type ServerConfig } from '../lib/api';
-import { addCapture, captureTab, takeCaptureRequest, targetTab, watchCaptureRequests, type Thread } from '../lib/chrome';
+import { addCapture, allowOrigins, captureTab, takeCaptureRequest, targetTab, watchCaptureRequests, type Thread } from '../lib/chrome';
 import { finalCapture, type Draft, type SendOptions } from '../lib/frames';
+import { screenshotTab, sizeText, type Shot } from '../lib/screenshot';
 
 interface DraftState extends SendOptions {
   draft: Draft;
   /** the tab it was read from, so a reply's ⟦fN⟧ can find the field there later */
   tabId: number;
+  /** the screenshot the user chose to send along; off by default, for every capture */
+  shot?: Shot;
+  shooting?: boolean;
+  shotError?: string;
 }
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -23,12 +28,15 @@ export function Composer({
   thread,
   busy,
   windowId,
+  model,
   onStarted,
 }: {
   server: ServerConfig;
   thread: Thread | null;
   busy: boolean;
   windowId?: number;
+  /** what the answer will run on, to tell whether a screenshot is any use */
+  model?: GuideModel | null;
   onStarted: (t: Thread) => void;
 }) {
   const [text, setText] = useState('');
@@ -64,19 +72,41 @@ export function Composer({
     return watchCaptureRequests(windowId, take);
   }, [windowId]);
 
+  // iframes from sites the extension may not read: ask Chrome for them, then read the page again
+  const allowFrames = async (state: DraftState) => {
+    try {
+      if (await allowOrigins(state.draft.unread)) await capture(state.tabId, state.selectionOnly);
+    } catch (e) {
+      setError(message(e));
+    }
+  };
+
+  const toggleShot = async (on: boolean) => {
+    if (!draft) return;
+    if (!on) return setDraft({ ...draft, shot: undefined, shotError: undefined });
+    setDraft({ ...draft, shooting: true, shotError: undefined });
+    try {
+      const shot = await screenshotTab(draft.tabId);
+      setDraft((d) => d && { ...d, shot, shooting: false });
+    } catch (e) {
+      setDraft((d) => d && { ...d, shooting: false, shotError: message(e) });
+    }
+  };
+
   const send = async () => {
     if (phase !== 'idle' || busy) return;
     const question = text.trim() || undefined;
     const page = draft ? finalCapture(draft.draft, draft) : undefined;
     if (!thread && !page) return setError('先捕捉一页：对话要从一个页面开始。');
     if (!page && !question) return;
+    const screenshot = page && model?.image !== false ? draft?.shot?.url : undefined;
     setError('');
     setPhase('sending');
     try {
       let sessionID = thread?.sessionID;
-      if (sessionID) await promptGuide(server, sessionID, { capture: page, question });
+      if (sessionID) await promptGuide(server, sessionID, { capture: page, question, screenshot });
       else {
-        const r = await startGuide(server, { capture: page, question });
+        const r = await startGuide(server, { capture: page, question, screenshot });
         sessionID = r.sessionID;
         onStarted({ sessionID: r.sessionID, title: r.title });
       }
@@ -104,7 +134,15 @@ export function Composer({
 
   return (
     <footer className="composer">
-      {draft && <DraftCard state={draft} onChange={setDraft} />}
+      {draft && (
+        <DraftCard
+          state={draft}
+          model={model}
+          onChange={setDraft}
+          onAllowFrames={() => void allowFrames(draft)}
+          onShot={(on) => void toggleShot(on)}
+        />
+      )}
       {error && <div className="banner bad">{error}</div>}
       <textarea
         value={text}
@@ -148,9 +186,31 @@ function valueText(f: CapturedField): string {
   return f.value;
 }
 
-/** What is about to be sent, with a way to leave fields or the page text out. */
-function DraftCard({ state, onChange }: { state: DraftState; onChange: (s: DraftState) => void }) {
+const hostOf = (origin: string) => {
+  try {
+    return new URL(origin).host;
+  } catch {
+    return origin;
+  }
+};
+
+/** What is about to be sent, with a way to leave fields or the page text out, or add a screenshot. */
+function DraftCard({
+  state,
+  model,
+  onChange,
+  onAllowFrames,
+  onShot,
+}: {
+  state: DraftState;
+  model?: GuideModel | null;
+  onChange: (s: DraftState) => void;
+  onAllowFrames: () => void;
+  onShot: (on: boolean) => void;
+}) {
   const c = state.draft.capture;
+  const { unread, hints } = state.draft;
+  const blind = model?.image === false;
   const sent = finalCapture(state.draft, state);
   const inSelection = new Set(state.draft.selected);
   let host = '';
@@ -172,12 +232,21 @@ function DraftCard({ state, onChange }: { state: DraftState; onChange: (s: Draft
       <div className="muted small">
         {sent.fields.length} 个字段 · {state.selectionOnly ? `选中的文字 ${c.selection?.length ?? 0} 字` : `正文 ${sent.text.length} 字`}
         {c.redactions ? ` · 已隐藏 ${c.redactions} 处敏感信息` : ''}
+        {state.shot ? ` · 截图 ${sizeText(state.shot.url)}` : ''}
       </div>
       {c.selection && (
         <label className="check">
           <input type="checkbox" checked={state.selectionOnly} onChange={(e) => onChange({ ...state, selectionOnly: e.target.checked })} />
           只发选中的部分（{inSelection.size} 个字段、{c.selection.length} 字）
         </label>
+      )}
+      {unread.length > 0 && (
+        <div className="banner warn">
+          页面里嵌着 {unread.map(hostOf).join('、')} 的内容，插件没有权限读，这次没包含。{' '}
+          <button className="link" onClick={onAllowFrames}>
+            允许读取并重新捕捉
+          </button>
+        </div>
       )}
       {c.fields.length === 0 && <div className="banner warn">这一页没找到表单字段，只会发送页面正文。</div>}
       <details>
@@ -209,7 +278,21 @@ function DraftCard({ state, onChange }: { state: DraftState; onChange: (s: Draft
           </label>
         )}
       </details>
-      <p className="muted small">页面内容会经 PixelWeb 发给模型提供商；像密钥、密码的值已经换成 {MASK}。</p>
+      <label className="check" title={blind ? `当前模型 ${model?.name} 看不了图片` : undefined}>
+        <input type="checkbox" checked={!!state.shot || !!state.shooting} disabled={blind || state.shooting} onChange={(e) => onShot(e.target.checked)} />
+        {state.shooting ? '正在截图…' : '附带截图（当前看得到的这一屏）'}
+      </label>
+      {blind && <p className="muted small">当前模型 {model?.name} 看不了图片，截图发了也没用。</p>}
+      {state.shotError && <div className="banner bad">{state.shotError}</div>}
+      {state.shot && <img className="shot" src={state.shot.url} alt="要发送的截图" />}
+      {hints.map((h) => (
+        <p key={h} className="muted small">
+          {h}
+        </p>
+      ))}
+      <p className="muted small">
+        页面内容会经 PixelWeb 发给模型提供商；像密钥、密码的值已经换成 {MASK}。{state.shot ? '截图原样发送，没法隐藏，发之前看一眼。' : ''}
+      </p>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import type { KnowledgeIndexEntry, LearningRecord, LearningState, MasteryLevel } from '@pixelweb/shared';
+import { categoryLabel } from './knowledge';
 
-const CATEGORY: Record<string, string> = { ai: 'AI', git: 'Git', web: 'Web', tooling: '工具链', architecture: '架构', general: '通用' };
 const SECTIONS: { mastery: MasteryLevel; title: string }[] = [
   { mastery: 'learning', title: '学习中' },
   { mastery: 'seen', title: '看过' },
@@ -58,7 +58,7 @@ function cardBlock(r: LearningRecord, card: KnowledgeIndexEntry | undefined): st
   const lines = [`### ${card?.title ?? r.cardId}`];
   if (card?.summary) lines.push('', `> ${card.summary}`);
   const facts = [
-    card ? `${CATEGORY[card.category] ?? card.category} · L${card.level}` : null,
+    card ? `${categoryLabel(card.category)} · L${card.level}` : null,
     `看过 ${r.seenCount} 次`,
     r.lastSeen ? `最近 ${day(r.lastSeen)}` : null,
     r.quizTotal ? `练习 ${r.quizCorrect}/${r.quizTotal}` : null,

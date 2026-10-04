@@ -154,7 +154,14 @@ export function App() {
         )}
       </div>
 
-      <Composer server={server} thread={thread} busy={guide.busy} windowId={windowId} onStarted={setThread} />
+      <Composer
+        server={server}
+        thread={thread}
+        busy={guide.busy}
+        windowId={windowId}
+        model={thread ? guide.model : info?.model}
+        onStarted={setThread}
+      />
     </div>
   );
 }

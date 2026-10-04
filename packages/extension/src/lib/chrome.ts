@@ -1,6 +1,6 @@
 import type { FrameCapture } from '../content/extract';
 import type { LocateTarget, PixelWebContent } from '../content/index';
-import type { ServerConfig } from './api';
+import { originPattern, type ServerConfig } from './api';
 import { mergeFrames, type Draft, type FieldOrigin } from './frames';
 
 /** The guide session a browser window is following; kept for the browser session, so reopening the panel resumes it. */
@@ -146,6 +146,9 @@ async function inject(tabId: number, frameIds?: number[]): Promise<chrome.script
   }
   throw last;
 }
+
+/** Asks Chrome for the sites of iframes a capture couldn't read; only works from a click. */
+export const allowOrigins = (origins: string[]) => chrome.permissions.request({ origins: origins.map(originPattern) });
 
 /** Reads every frame of the tab the extension may read, merged into one masked draft. */
 export async function captureTab(tabId: number): Promise<Draft> {

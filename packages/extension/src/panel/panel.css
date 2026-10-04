@@ -90,3 +90,5 @@ a.term:hover { text-decoration: underline solid currentColor; }
 .fields li .value.masked { font-style: italic; }
 .fields li.off .label, .fields li.off .value { text-decoration: line-through; opacity: 0.6; }
 .check { display: flex; align-items: center; font-size: 12px; margin-top: 6px; }
+.check:has(input:disabled) { color: var(--muted); }
+.shot { display: block; width: 100%; max-height: 160px; object-fit: contain; object-position: left top; margin: 6px 0 2px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel-2); }

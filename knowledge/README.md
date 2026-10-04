@@ -15,7 +15,7 @@ id: webhook            # 唯一 id（文件名即默认 id）
 title: Webhook
 aliases: [web hook]    # 触发高亮的别名（中英皆可），要足够专指
 keywords: [回调]        # 只用于搜索、不高亮的近义词（太常见的词放这里，如「请求」「API」）
-category: web          # ai | git | web | tooling | architecture | general
+category: web          # ai | git | web | tooling | architecture | cloud | general
 level: 1               # 1 基础 · 2 进阶 · 3 深入
 summary: 一句话定义
 related: [sse, websocket]

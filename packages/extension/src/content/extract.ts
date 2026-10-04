@@ -1,4 +1,5 @@
 import type { CapturedField, CapturedFieldKind } from '@pixelweb/shared';
+import type { VendorAdapter } from './vendors';
 
 /**
  * Reads one frame of a cloud console page into what the guide needs: the form's
@@ -6,6 +7,7 @@ import type { CapturedField, CapturedFieldKind } from '@pixelweb/shared';
  * text around them. Generic rules only — native controls, ARIA roles and the
  * class names component libraries share (form-item, label, help, error) — so it
  * copes with Ant Design, Alibaba Fusion and AWS Cloudscape without knowing them.
+ * A vendor adapter (vendors.ts) only adds where its console keeps help text.
  * Nothing is redacted here (the side panel does that on the merged frames), but
  * password inputs are never read. The page's DOM is never changed.
  */
@@ -21,6 +23,16 @@ export interface FrameCapture {
   selection?: string;
   /** indexes of the fields inside the user's selection, when there is one */
   selected?: number[];
+  /** origins of the visible iframes on this page, so the side panel can tell which it couldn't read */
+  frames?: string[];
+  /** tips for the user about what this capture missed (not sent) */
+  hints?: string[];
+}
+
+/** A help icon whose text only shows on hover, and the field it belongs to. */
+export interface HelpTip {
+  field: number;
+  icon: Element;
 }
 
 /** How to tell what is on screen; a test DOM has no layout, so tests pass their own. */
@@ -42,7 +54,7 @@ export const browserDom: Dom = {
   },
 };
 
-const MAX = { fields: 150, label: 120, value: 500, options: 30, option: 80, help: 400, error: 200, section: 80, crumbs: 12, crumb: 80, heading: 200, selection: 4000 };
+const MAX = { fields: 150, label: 120, value: 500, options: 30, option: 80, help: 400, error: 200, section: 80, crumbs: 12, crumb: 80, heading: 200, selection: 4000, helpPanel: 1500 };
 export const TEXT_BUDGET = 8000;
 
 const CONTROLS = [
@@ -75,6 +87,16 @@ const HELP = /help|extra|desc|hint|tip|explain|constraint/i;
 const ERROR = /error|invalid/i;
 const PLACEHOLDER = '[class*="placeholder" i]';
 const PLACEHOLDER_TEXT = /^(请选择|请输入|select\b|choose\b)/i;
+/**
+ * A "?" beside a label: an icon (Fusion next-icon-help, Ant anticon-question-circle,
+ * Element el-icon-question) whose explanation is a tooltip, not text on the page.
+ */
+const HELP_ICON = ['help', 'question', 'info', 'prompt'].map((k) => `[class*="icon" i][class*="${k}" i]`).join(',');
+/** Where tooltip text can sit on the icon itself, without hovering. */
+const ICON_TEXT_ATTRS = ['data-tooltip', 'data-tip', 'data-title', 'data-content', 'data-original-title', 'title', 'aria-label'];
+/** An icon's name rather than its text: "help", "question-circle". */
+const ICON_NAME = /^(help|info|question|tips?|帮助|信息|提示|说明|更多信息|more info|[\w-]*(circle|icon|outlined|filled))$/i;
+
 const SECTION = [
   'h2',
   'h3',
@@ -179,6 +201,8 @@ class Reader {
     if (own) return { text: own };
     for (const l of Array.from(item.querySelectorAll(LABELISH))) {
       if (within(el, l) || within(l, el) || l.matches(CONTROLS) || l.querySelector(CONTROLS)) continue;
+      // the text of another option (Fusion's next-checkbox-label inside its wrapping <label>)
+      if (closestUp(l, '[role="radio"], [role="checkbox"], [role="option"]', 4) || closestUp(parentOf(l), 'label', 3)?.querySelector(CONTROLS)) continue;
       // the item's label comes before its control; option labels and hints after it don't count
       if (!(l.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING)) continue;
       const t = this.text(l);
@@ -222,6 +246,39 @@ class Reader {
     return '';
   }
 
+  /** "?" icons in the label part of the control's form item: before the control, not inside it. */
+  helpIcons(el: Element): Element[] {
+    const item = this.itemOf(el);
+    if (!item) return [];
+    return Array.from(item.querySelectorAll(HELP_ICON)).filter(
+      (i) =>
+        !within(i, el) &&
+        !i.querySelector(HELP_ICON) &&
+        !i.querySelector(CONTROLS) &&
+        squash(i.textContent ?? '').length <= 2 &&
+        !!(i.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING) &&
+        this.dom.rendered(i),
+    );
+  }
+
+  /** A help icon's text without hovering it: an attribute on it (or on a wrapper with nothing else in it), or the tooltip it points at. */
+  iconText(icon: Element): string {
+    const parent = icon.parentElement;
+    const holders = parent && squash(parent.textContent ?? '').length <= 2 && !parent.matches('label') ? [icon, parent] : [icon];
+    for (const e of holders) {
+      for (const a of ICON_TEXT_ATTRS) {
+        const v = squash(e.getAttribute(a) ?? '');
+        if (v && !ICON_NAME.test(v)) return v;
+      }
+      // a tooltip that is in the DOM but hidden until hover still describes the icon
+      const ids = e.getAttribute('aria-describedby')?.trim().split(/\s+/) ?? [];
+      const root = e.getRootNode() as Document | ShadowRoot;
+      const t = squash(ids.map((id) => root.getElementById?.(id)?.textContent ?? '').join(' '));
+      if (t) return t;
+    }
+    return '';
+  }
+
   label(el: Element, toggle = false): { text: string; required: boolean } {
     const own = this.ownLabel(el);
     let pick = own;
@@ -234,7 +291,8 @@ class Reader {
     }
     let text = pick.text || el.getAttribute('placeholder') || el.getAttribute('title') || el.getAttribute('name') || '';
     const star = /^\s*\*|\*\s*[:：]?\s*$/.test(text);
-    const required = star || !!pick.el?.matches('[class*="required" i]') || !!pick.el?.querySelector('[class*="required" i]');
+    // Fusion marks it with label[required] and draws the star in CSS
+    const required = star || !!pick.el?.matches('[class*="required" i], [required]') || !!pick.el?.querySelector('[class*="required" i], [required]');
     text = cleanLabel(text);
     return { text: cut(text, MAX.label), required };
   }
@@ -245,10 +303,12 @@ class Reader {
     let error = this.idsText(el, 'aria-errormessage');
     const item = this.itemOf(el);
     if (item) {
+      // Fusion shows a failed check in its "help" line and marks the item has-error
+      const failing = item.matches('[class*="has-error" i], [class*="is-error" i]');
       for (const n of Array.from(item.querySelectorAll('[class]'))) {
         if (within(el, n) || within(n, el) || n.querySelector(CONTROLS)) continue;
         const cls = typeof n.className === 'string' ? n.className : n.getAttribute('class') ?? '';
-        const isError = ERROR.test(cls);
+        const isError = ERROR.test(cls) || (failing && /help|explain/i.test(cls) && !/extra|icon/i.test(cls));
         if (!isError && !HELP.test(cls)) continue;
         if (isError && error) continue;
         if (!isError && help) continue;
@@ -257,6 +317,16 @@ class Reader {
         if (isError) error = t;
         else help = t;
       }
+    }
+    if (!help && item) {
+      // text loose beside the control, in no element of its own (Fusion's "extra" in some layouts)
+      const loose: string[] = [];
+      for (let e = parentOf(el); e; e = parentOf(e)) {
+        for (const c of Array.from(e.childNodes))
+          if (c.nodeType === Node.TEXT_NODE && el.compareDocumentPosition(c) & Node.DOCUMENT_POSITION_FOLLOWING) loose.push(c.nodeValue ?? '');
+        if (e === item) break;
+      }
+      help = squash(loose.join(' '));
     }
     if (help && error && help.includes(error)) help = squash(help.replace(error, ''));
     return { ...(help ? { help: cut(help, MAX.help) } : {}), ...(error ? { error: cut(error, MAX.error) } : {}) };
@@ -276,6 +346,36 @@ function commonAncestor(els: Element[]): Element {
   let box: Element | null = els[0];
   while (box && !els.every((e) => within(e, box!))) box = parentOf(box);
   return box ?? els[0];
+}
+
+/** Adds a piece of help to a field, unless it already says that. */
+export function addHelp(field: Omit<CapturedField, 'ref'>, text: string): void {
+  const t = squash(text);
+  if (!t || field.help?.includes(t)) return;
+  field.help = cut(field.help ? `${field.help} ${t}` : t, MAX.help);
+}
+
+/** Visible text of an element, as the reader sees it (for tooltips read on hover). */
+export const visibleText = (el: Element, dom: Dom = browserDom) => new Reader(dom).text(el);
+
+/** Text of an element the page may keep hidden (a closed drawer), one line per block. */
+function blockText(el: Element): string {
+  let out = '';
+  const visit = (n: Node) => {
+    if (n.nodeType === Node.TEXT_NODE) {
+      out += n.nodeValue ?? '';
+      return;
+    }
+    if (n.nodeType !== Node.ELEMENT_NODE) return;
+    const e = n as Element;
+    if (e.matches('script, style, noscript, template, svg, button')) return;
+    const block = /^(DIV|P|LI|UL|OL|H[1-6]|DT|DD|TR|SECTION|HEADER|FOOTER|BR|PRE|TABLE)$/.test(e.tagName);
+    if (block) out += '\n';
+    for (const c of Array.from(e.childNodes)) visit(c);
+    if (block) out += '\n';
+  };
+  visit(el);
+  return out;
 }
 
 function isDisabled(el: Element): boolean {
@@ -303,7 +403,8 @@ function kindOf(el: Element): CapturedFieldKind | 'skip' | 'radio-input' {
     if (type === 'radio') return 'radio-input';
     if (type === 'checkbox') return role === 'switch' ? 'switch' : 'checkbox';
     if (role === 'combobox') return 'select';
-    if (type === 'number' || type === 'range' || role === 'spinbutton') return 'number';
+    // Fusion's NumberPicker is a plain text input with a range
+    if (type === 'number' || type === 'range' || role === 'spinbutton' || el.hasAttribute('aria-valuemax')) return 'number';
     return 'text';
   }
   if (tag === 'textarea') return 'textarea';
@@ -336,19 +437,48 @@ function checkedState(el: Element): boolean | 'mixed' {
   return !!(el as HTMLInputElement).checked;
 }
 
-export function extractPage(doc: Document, dom: Dom = browserDom): { capture: FrameCapture; elements: Element[] } {
+export function extractPage(
+  doc: Document,
+  dom: Dom = browserDom,
+  adapter: VendorAdapter = {},
+): { capture: FrameCapture; elements: Element[]; tips: HelpTip[] } {
   const r = new Reader(dom);
   const fields: Omit<CapturedField, 'ref'>[] = [];
   const elements: Element[] = [];
+  const tips: HelpTip[] = [];
+  const icons = new Set<Element>();
+  const frames = new Set<string>();
   const covered = new Set<Element>();
   let inside: Element | null = null; // the last field found: its descendants belong to it
   let section: string | undefined;
+
+  /**
+   * What the user sees of a custom select whose input is a sliver: Fusion's
+   * combobox input is 1 px wide inside the box that shows the choice.
+   */
+  const selectBox = (el: Element): Element => {
+    if (dom.visible(el)) return el;
+    let outer: Element | null = null; // the select's own wrappers are "select"-ish too: take the outermost
+    for (let e = parentOf(el), up = 0; e && up < 4 && !e.matches(FORM_ITEM); e = parentOf(e), up++) {
+      if (!dom.visible(e)) continue;
+      if (e.matches('[aria-haspopup]')) return e;
+      if (e.matches('[class*="select" i]')) outer = e;
+    }
+    return outer ?? el;
+  };
 
   const read = (el: Element): Found | null => {
     const kind = kindOf(el);
     if (kind === 'skip') return null;
     if (kind === 'radio-input' || (kind === 'radio' && el.getAttribute('role') === 'radio')) return radioGroup(el);
-    const box = kind === 'checkbox' || kind === 'switch' ? (el.tagName === 'INPUT' ? closestUp(el, 'label', 3) ?? parentOf(el) ?? el : el) : el;
+    const box =
+      kind === 'checkbox' || kind === 'switch'
+        ? el.tagName === 'INPUT'
+          ? (closestUp(el, 'label', 3) ?? parentOf(el) ?? el)
+          : el
+        : kind === 'select' && el.tagName === 'INPUT'
+          ? selectBox(el)
+          : el;
     if (!dom.visible(box)) return null;
     const lab = r.label(el, kind === 'checkbox' || kind === 'switch');
     const field: Omit<CapturedField, 'ref'> = { label: lab.text, kind };
@@ -359,7 +489,12 @@ export function extractPage(doc: Document, dom: Dom = browserDom): { capture: Fr
     if (lab.required || el.hasAttribute('required') || el.getAttribute('aria-required') === 'true') field.required = true;
     if (isDisabled(el)) field.disabled = true;
     Object.assign(field, r.notes(el));
-    return { field, el, covers: el.getAttribute('role') === 'radiogroup' ? Array.from(el.querySelectorAll('input[type="radio"], [role="radio"]')) : undefined };
+    return {
+      field,
+      el,
+      mark: kind === 'select' && box !== el ? box : undefined,
+      covers: el.getAttribute('role') === 'radiogroup' ? Array.from(el.querySelectorAll('input[type="radio"], [role="radio"]')) : undefined,
+    };
   };
 
   const valueOf = (el: Element, kind: CapturedFieldKind): string | undefined => {
@@ -405,7 +540,7 @@ export function extractPage(doc: Document, dom: Dom = browserDom): { capture: Fr
     let shown = '';
     if (el.tagName !== 'INPUT') shown = r.text(el);
     else {
-      shown = (el as HTMLInputElement).value.trim();
+      shown = (el as HTMLInputElement).value.trim() || el.getAttribute('aria-valuetext')?.trim() || '';
       for (let box = parentOf(el), up = 0; !shown && box && up < 2; box = parentOf(box), up++) {
         if (box.matches(FORM_ITEM) || box.querySelector('label') || Array.from(box.querySelectorAll(CONTROLS)).some((c) => c !== el)) break;
         shown = r.text(box, el);
@@ -475,6 +610,11 @@ export function extractPage(doc: Document, dom: Dom = browserDom): { capture: Fr
       inside = el; // skip the console's own menus and top bar
       continue;
     }
+    if (el.matches('iframe, frame')) {
+      const src = (el as HTMLIFrameElement).src;
+      if (/^https?:/i.test(src) && dom.visible(el)) frames.add(new URL(src).origin);
+      continue;
+    }
     if (el.matches(SECTION) && dom.rendered(el)) {
       const t = squash(r.text(el));
       if (t && t.length <= MAX.section) section = t;
@@ -486,6 +626,14 @@ export function extractPage(doc: Document, dom: Dom = browserDom): { capture: Fr
     if (!found) continue;
     for (const c of found.covers ?? []) covered.add(c);
     if (section && section !== found.field.label) found.field.section = section;
+    // a "?" beside the label: its text if the page keeps it somewhere, else hover it later (index.ts)
+    for (const icon of r.helpIcons(found.el)) {
+      if (icons.has(icon)) continue; // the item's other checkboxes share it
+      icons.add(icon);
+      const t = r.iconText(icon);
+      if (t) addHelp(found.field, t);
+      else tips.push({ field: fields.length, icon });
+    }
     fields.push(found.field);
     elements.push(found.mark ?? found.el);
     inside = found.el;
@@ -495,6 +643,15 @@ export function extractPage(doc: Document, dom: Dom = browserDom): { capture: Fr
   const sel = selection?.toString().trim();
   const ranges = sel && selection ? Array.from({ length: selection.rangeCount }, (_, i) => selection.getRangeAt(i)) : [];
   const selected = elements.flatMap((el, i) => (ranges.some((rg) => rg.intersectsNode(el)) ? [i] : []));
+
+  // the console's own help for the page goes first, under its own heading, open or not
+  const panel = adapter.helpPanel ? doc.querySelector(adapter.helpPanel) : null;
+  const help = panel ? tidy(blockText(panel), MAX.helpPanel) : '';
+  const text = help ? `【页面帮助面板】\n${help}\n\n${pageText(doc, dom, TEXT_BUDGET - help.length, panel)}` : pageText(doc, dom);
+  const hints: string[] = [];
+  const info = adapter.infoLinks ? Array.from(doc.querySelectorAll(adapter.infoLinks)).some((e) => dom.visible(e)) : false;
+  if (info && !(panel && dom.rendered(panel))) hints.push('字段旁的「Info」点开后再捕捉，帮助面板里那一项的说明会一起发送。');
+
   return {
     capture: {
       url: doc.location?.href ?? doc.URL,
@@ -502,10 +659,13 @@ export function extractPage(doc: Document, dom: Dom = browserDom): { capture: Fr
       breadcrumbs: breadcrumbs(doc, r, dom),
       heading: heading(doc, r, dom),
       fields,
-      text: pageText(doc, dom),
+      text,
       ...(sel ? { selection: cut(sel, MAX.selection), selected } : {}),
+      ...(frames.size ? { frames: [...frames] } : {}),
+      ...(hints.length ? { hints } : {}),
     },
     elements,
+    tips,
   };
 }
 
@@ -536,13 +696,13 @@ function heading(doc: Document, r: Reader, dom: Dom): string {
  * per block. All of the body, not just <main>: the price usually sits in a
  * bar outside it.
  */
-export function pageText(doc: Document, dom: Dom, budget = TEXT_BUDGET): string {
+export function pageText(doc: Document, dom: Dom, budget = TEXT_BUDGET, skip?: Element | null): string {
   const root = doc.body;
   if (!root) return '';
   const parts: string[] = [];
   const visit = (el: Element) => {
-    if (el.matches(NOISE) || !dom.rendered(el)) return;
-    if (!el.querySelector(NOISE)) {
+    if (el.matches(NOISE) || el === skip || !dom.rendered(el)) return;
+    if (!el.querySelector(NOISE) && !(skip && el.contains(skip))) {
       parts.push((el as HTMLElement).innerText ?? el.textContent ?? '');
       return;
     }

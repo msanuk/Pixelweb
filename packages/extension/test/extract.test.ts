@@ -2,6 +2,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { extractPage, tidy, type Dom } from '../src/content/extract';
+import { ADAPTERS } from '../src/content/vendors';
 
 // happy-dom has no layout: "visible" means not inside something hidden
 const shown = (el: Element) => !el.closest('[hidden], [style*="display: none"], [style*="display:none"]');
@@ -109,6 +110,14 @@ describe('extractPage on an AWS Cloudscape style form', () => {
     expect(f['Size (GiB)']).toMatchObject({ kind: 'number', value: '8', required: true });
   });
 
+  it('only reads the closed help panel with the AWS adapter', () => {
+    expect(capture.text).not.toContain('Amazon EC2 allows you');
+    const withAdapter = extractPage(load('aws-ec2'), dom, ADAPTERS.aws).capture;
+    expect(withAdapter.text).toMatch(/^【页面帮助面板】\nLaunch an instance\nAmazon EC2 allows you/);
+    expect(withAdapter.hints).toHaveLength(1);
+    expect(withAdapter.fields.map((x) => x.label)).toEqual(capture.fields.map((x) => x.label));
+  });
+
   it('skips the console search box', () => {
     expect(capture.fields.find((x) => x.label === 'Search')).toBeUndefined();
     expect(capture.breadcrumbs).toEqual(['EC2', 'Instances', 'Launch an instance']);
@@ -173,6 +182,97 @@ describe('extractPage edge cases', () => {
     );
     const { elements } = extractPage(doc, dom);
     expect(elements[0]).toBe(doc.getElementById('opts'));
+  });
+});
+
+describe('help icons', () => {
+  it('reads a tooltip the icon carries, or points at, without hovering', () => {
+    const doc = html(
+      '<div class="form-item"><label for="a">实例名称<i class="anticon anticon-question-circle" aria-label="question-circle" title="2 到 128 个字符"></i></label><input id="a" value="web"></div>' +
+        '<div class="form-item"><label for="b">带宽<span class="help-icon" aria-describedby="t1"></span></label><input id="b" type="number" value="5"></div>' +
+        '<div role="tooltip" id="t1" hidden>按使用流量时只是上限</div>',
+    );
+    const { capture, tips } = extractPage(doc, dom);
+    expect(capture.fields.map((f) => f.help)).toEqual(['2 到 128 个字符', '按使用流量时只是上限']);
+    expect(tips).toEqual([]);
+  });
+
+  it('leaves icons with only a name for hovering, once per form item (Fusion)', () => {
+    const doc = html(
+      '<div class="next-form-item"><div class="next-form-item-label"><label required><span>付费类型<i class="next-icon next-icon-help next-xs" aria-haspopup="true"></i></span></label></div>' +
+        '<div class="next-form-item-control"><div role="radiogroup"><label><input type="radio" name="p" checked>按量付费</label><label><input type="radio" name="p">包年包月</label></div></div></div>' +
+        '<div class="next-form-item"><div class="next-form-item-label"><label><span>端口<i class="next-icon next-icon-help"></i></span></label></div>' +
+        '<div class="next-form-item-control"><label><input type="checkbox" checked>HTTP 80</label><label><input type="checkbox">SSH 22</label></div></div>',
+    );
+    const { capture, tips } = extractPage(doc, dom);
+    expect(capture.fields.map((f) => f.label)).toEqual(['付费类型', '端口 · HTTP 80', '端口 · SSH 22']);
+    expect(capture.fields[0].required).toBe(true);
+    expect(tips.map((t) => [t.field, t.icon.parentElement?.textContent])).toEqual([
+      [0, '付费类型'],
+      [1, '端口'],
+    ]);
+  });
+
+  it("reads Fusion's select, number picker and checkbox group as drawn", () => {
+    // the select's combobox input is a 1 px sliver; the box around it shows the choice
+    const sliver: Dom = { visible: (el) => shown(el) && !el.matches('input[size="1"]'), rendered: shown };
+    const doc = html(
+      '<div class="next-form-item"><div class="next-form-item-label"><label>地域</label></div><div class="next-form-item-control">' +
+        '<span id="box" class="next-select next-select-trigger" aria-haspopup="true"><span class="next-select-values"><em title="华东1（杭州）">华东1（杭州）</em>' +
+        '<span class="next-select-trigger-search"><input role="combobox" readonly size="1" aria-valuetext="华东1（杭州）" value=""></span></span></span></div></div>' +
+        '<div class="next-form-item"><div class="next-form-item-label"><label>带宽峰值</label></div><div class="next-form-item-control"><input aria-valuemin="1" aria-valuemax="200" value="5">  1 - 200 Mbps</div></div>' +
+        '<div class="next-form-item"><div class="next-form-item-label"><label>端口</label></div><div class="next-form-item-control"><span class="next-checkbox-group">' +
+        '<label class="next-checkbox-wrapper"><span class="next-checkbox"><input type="checkbox" checked></span><span class="next-checkbox-label">HTTP 80</span></label>' +
+        '<label class="next-checkbox-wrapper"><span class="next-checkbox"><input type="checkbox"></span><span class="next-checkbox-label">SSH 22</span></label></span></div></div>',
+    );
+    const { capture, elements } = extractPage(doc, sliver);
+    expect(capture.fields.map((f) => [f.label, f.kind, f.value])).toEqual([
+      ['地域', 'select', '华东1（杭州）'],
+      ['带宽峰值', 'number', '5'],
+      ['端口 · HTTP 80', 'checkbox', '已勾选'],
+      ['端口 · SSH 22', 'checkbox', '未勾选'],
+    ]);
+    expect(elements[0]).toBe(doc.getElementById('box'));
+    expect(capture.fields[1].help).toBe('1 - 200 Mbps'); // Fusion's "extra", loose beside the control
+  });
+
+  it("takes Fusion's help line as the error when the item has-error", () => {
+    const doc = html(
+      '<div class="next-form-item has-error"><label for="n">实例名称</label><input id="n" value="a_b"><div class="next-form-item-help">名称不能包含下划线</div><div class="next-form-item-extra">2 到 128 个字符</div></div>',
+    );
+    expect(byLabel(doc)['实例名称']).toMatchObject({ error: '名称不能包含下划线', help: '2 到 128 个字符' });
+  });
+});
+
+describe('frames and vendor adapters', () => {
+  it('lists the origins of visible iframes', () => {
+    const doc = html(
+      '<iframe src="https://ecs-buy.aliyun.com/x?y=1"></iframe><iframe src="https://widget.example.test/w"></iframe>' +
+        '<iframe src="about:blank"></iframe><div hidden><iframe src="https://ads.example.test/"></iframe></div>',
+    );
+    expect(extractPage(doc, dom).capture.frames).toEqual(['https://ecs-buy.aliyun.com', 'https://widget.example.test']);
+    expect(extractPage(html('<p>x</p>'), dom).capture.frames).toBeUndefined();
+  });
+
+  const aws = { helpPanel: '[class*="awsui_help-panel_"]', infoLinks: '[class*="awsui_variant-info"]' };
+  const page = (drawer: string) =>
+    html(
+      '<h1>Launch an instance</h1><label for="n">Name</label><span><a class="awsui_link_x awsui_variant-info_y" role="button">Info</a></span><input id="n" value="web">' +
+        `<aside aria-label="Help panel" ${drawer}><div class="awsui_help-panel_1d237_100j2_9"><h2>Launch an instance</h2><p>Amazon EC2 lets you</p><p>pick an AMI.</p></div></aside>`,
+    );
+
+  it("sends AWS's help panel first, even while its drawer is closed", () => {
+    const c = extractPage(page('style="display: none"'), dom, aws).capture;
+    expect(c.text).toMatch(/^【页面帮助面板】\nLaunch an instance\nAmazon EC2 lets you\npick an AMI\.\n\n/);
+    expect(c.text.match(/pick an AMI/g)).toHaveLength(1);
+    expect(c.hints?.[0]).toContain('Info');
+  });
+
+  it('drops the Info hint once the panel is open', () => {
+    const c = extractPage(page(''), dom, aws).capture;
+    expect(c.text.match(/pick an AMI/g)).toHaveLength(1);
+    expect(c.hints).toBeUndefined();
+    expect(extractPage(page(''), dom).capture.text).not.toContain('【页面帮助面板】');
   });
 });
 

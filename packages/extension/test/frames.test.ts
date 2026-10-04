@@ -68,6 +68,15 @@ describe('mergeFrames', () => {
     expect(d.capture.redactions).toBe(3); // two values and the token in the URL
   });
 
+  it("names the iframes no reader ran in, and passes on the frames' hints once", () => {
+    const d = mergeFrames([
+      { frameId: 0, result: frame({ frames: ['https://ecs-buy.aliyun.com', 'https://widget.example.test'], hints: ['点 Info'] }) },
+      { frameId: 3, result: frame({ url: 'https://ecs-buy.aliyun.com/buy', text: '', hints: ['点 Info'] }) },
+    ]);
+    expect(d.unread).toEqual(['https://widget.example.test']);
+    expect(d.hints).toEqual(['点 Info']);
+  });
+
   it('fails when no frame could be read', () => {
     expect(() => mergeFrames([{ frameId: 0, result: null }])).toThrow('没读到页面内容');
   });

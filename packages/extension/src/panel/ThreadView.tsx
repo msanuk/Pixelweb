@@ -69,7 +69,8 @@ export function ThreadView({
     if (m.info.role === 'user') {
       const view = readPrompt(textOf(m.parts));
       if (view.page) ctx = { refs: view.refs, record: [...captures].reverse().find((r) => sameRefs(r.labels, view.refs)) };
-      return <UserTurn key={m.info.id} view={view} />;
+      const shot = m.parts.some((p) => p.type === 'file' && (p as { mime?: string }).mime?.startsWith('image/'));
+      return <UserTurn key={m.info.id} view={view} shot={shot} />;
     }
     return <AssistantTurn key={m.info.id} msg={m} ctx={ctx} root={root} origin={origin} terms={terms} onLocate={locate} />;
   });
@@ -91,7 +92,7 @@ export function ThreadView({
   );
 }
 
-function UserTurn({ view }: { view: PromptView }) {
+function UserTurn({ view, shot }: { view: PromptView; shot: boolean }) {
   const page = view.page;
   return (
     <div className="turn user">
@@ -99,7 +100,10 @@ function UserTurn({ view }: { view: PromptView }) {
         <div className="page-chip" title={page.host}>
           <span className="tag">{page.next ? '下一页' : '页面'}</span>
           {[page.vendor, page.heading || page.host].filter(Boolean).join(' · ')}
-          <span className="muted"> · {page.fields} 个字段</span>
+          <span className="muted">
+            {' '}
+            · {page.fields} 个字段{shot ? ' · 附截图' : ''}
+          </span>
         </div>
       )}
       {view.question && <div className="bubble">{view.question}</div>}
