@@ -13,7 +13,7 @@ npm workspaces monorepo (`packages/*`), Node >= 20. Run everything from the repo
 ```bash
 npm install
 npm run dev          # server (tsx watch, :7420) + web (vite, :5173, proxies /api and /ws to 7420)
-npm run dev:mock     # fake `opencode serve` on :4096 with sample sessions + streaming replies (PORT / DIR env override; PROJECTS=dir1:dir2 adds more projects to switch to)
+npm run dev:mock     # fake `opencode serve` on :4096 with sample sessions + replies streamed as `message.part.delta` like OpenCode ≥ 1.18 (PORT / DIR env override; PROJECTS=dir1:dir2 adds more projects to switch to)
 npm run build        # server: tsc → packages/server/dist; web: vite build → packages/server/public
 npm run typecheck
 npm test             # vitest, server, web and extension packages
@@ -55,7 +55,7 @@ Access control lives in `server/src/auth.ts` (`registerAuth`, an `onRequest` hoo
   - `usage.ts` — the 用量 page's `GET /api/usage?from&to&tz`: sums every session's steps in the range per `provider/model` and per local day. It counts `step-finish` parts, not assistant messages — OpenCode overwrites a message's `tokens` with its last step's (cost is summed), so message tokens undercount multi-step turns (the counting itself is `stepsOf` in `@pixelweb/shared/steps`, shared with the timeline header). Step lists are cached per session until its `time.updated` changes.
   - If `packages/server/public/index.html` exists (from `npm run build`), the server also serves the UI with SPA fallback.
 - **`packages/web`** (React 18 + Vite, no router or state library):
-  - `lib/store.ts` — a single hand-written global store (`useSyncExternalStore`) plus `applyEvent`, a reducer that merges raw OpenCode SSE events (`message.updated`, `message.part.updated`, `session.status`, `permission.*`, `todo.updated`…) into a per-session message/part tree. Parts for sessions whose messages aren't loaded yet are dropped and fetched on open.
+  - `lib/store.ts` — a single hand-written global store (`useSyncExternalStore`) plus `applyEvent`, a reducer that merges raw OpenCode SSE events (`message.updated`, `message.part.updated`, `session.status`, `permission.*`, `todo.updated`…) into a per-session message/part tree. Parts for sessions whose messages aren't loaded yet are dropped and fetched on open. OpenCode ≥ 1.18 streams text as `message.part.delta` chunks between an empty and a full `message.part.updated`; `lib/delta.ts` (pure, tested) appends them, and they stay out of the activity feed.
   - `lib/terms.ts` + `components/Highlight.tsx` — every term/alias from the knowledge index becomes a click-to-open-card highlight (longest match first; ASCII terms need a boundary that also excludes paths, file names and identifiers, so `ts` doesn't fire in `auth.ts`; keywords are never highlighted).
   - `lib/activity.ts` — which project files a session read/edited (tool inputs + `patch` parts; OpenCode passes absolute, possibly Windows, paths → `toProjectPath`) and `nodeForPath` to map them onto arch-graph nodes.
   - `lib/context.ts` — the timeline's context meter. `compactionThreshold` mirrors OpenCode's own overflow check (v1.17: window minus `min(output limit, 32k)`, or `limit.input` minus `compaction.reserved` ?? 20k); limits come from `GET /api/models` (OpenCode `/config/providers` + `/config`). Re-check it when bumping the OpenCode version.
