@@ -240,13 +240,15 @@ http.createServer((req, res) => {
         const am = { id: 'm' + counter++, sessionID: id, role: 'assistant', time: { created: now() }, parentID: um.id, modelID: 'claude-sonnet-4', providerID: 'anthropic', cost: 0, tokens: { input: 100, output: 0, reasoning: 0, cache: { read: 0, write: 0 } } };
         messages[id].push({ info: am, parts: [] });
         setTimeout(() => emit({ type: 'message.updated', properties: { info: am } }), 200);
+        // like opencode ≥ 1.18: the empty part, then message.part.delta chunks, then the full part
         const stream = (reply) => {
         const tp = { id: 'p' + counter++, sessionID: id, messageID: am.id, type: 'text', text: '' };
         messages[id].at(-1).parts.push(tp);
+        emit({ type: 'message.part.updated', properties: { part: { ...tp } } });
         let i = 0; const iv = setInterval(() => {
-          i += 8; tp.text = reply.slice(0, i);
-          emit({ type: 'message.part.updated', properties: { part: { ...tp } } });
-          if (i >= reply.length) { clearInterval(iv); am.time.completed = now(); am.tokens.output = 50; emit({ type: 'message.updated', properties: { info: am } }); emit({ type: 'session.status', properties: { sessionID: id, status: { type: 'idle' } } }); emit({ type: 'session.idle', properties: { sessionID: id } }); }
+          const delta = reply.slice(i, i + 8); i += 8; tp.text += delta;
+          emit({ type: 'message.part.delta', properties: { sessionID: id, messageID: am.id, partID: tp.id, field: 'text', delta } });
+          if (i >= reply.length) { clearInterval(iv); emit({ type: 'message.part.updated', properties: { part: { ...tp } } }); am.time.completed = now(); am.tokens.output = 50; emit({ type: 'message.updated', properties: { info: am } }); emit({ type: 'session.status', properties: { sessionID: id, status: { type: 'idle' } } }); emit({ type: 'session.idle', properties: { sessionID: id } }); }
         }, 60);
         };
         if (b.system) {
