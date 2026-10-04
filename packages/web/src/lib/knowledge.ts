@@ -17,6 +17,7 @@ export const CATEGORIES: { id: CategoryFilter; label: string }[] = [
   { id: 'web', label: 'Web' },
   { id: 'tooling', label: '工具链' },
   { id: 'architecture', label: '架构' },
+  { id: 'cloud', label: '云' },
   { id: 'general', label: '通用' },
 ];
 
@@ -89,4 +90,21 @@ export function stepSelection(ids: string[], current: string | null, dir: 1 | -1
   const i = current ? ids.indexOf(current) : -1;
   if (i < 0) return dir === 1 ? 0 : ids.length - 1;
   return Math.min(ids.length - 1, Math.max(0, i + dir));
+}
+
+/**
+ * Links to a card from outside the app (the browser extension's side panel):
+ * `<origin>/#card=<id>` opens PixelWeb with that card's drawer.
+ */
+export const cardLink = (origin: string, id: string) => `${origin}/#card=${encodeURIComponent(id)}`;
+
+/** The card a `#card=<id>` hash asks for; null for any other hash. */
+export function cardFromHash(hash: string): string | null {
+  const m = /^#card=([^&#/?]+)$/.exec(hash);
+  if (!m) return null;
+  try {
+    return decodeURIComponent(m[1]) || null;
+  } catch {
+    return null;
+  }
 }

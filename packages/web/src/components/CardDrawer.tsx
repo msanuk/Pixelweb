@@ -1,18 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import type { KnowledgeCard } from '@pixelweb/shared';
 import { api } from '../lib/api';
+import { categoryLabel } from '../lib/knowledge';
 import { explain, openCard, setState, toast, useStore } from '../lib/store';
 import { Markdown } from './Markdown';
 import { Icon } from './Icon';
-
-const CATEGORY_LABEL: Record<string, string> = {
-  ai: 'AI',
-  git: 'Git',
-  web: 'Web',
-  tooling: '工具链',
-  architecture: '架构',
-  general: '通用',
-};
 
 export function CardDrawer() {
   const id = useStore((s) => s.openCard);
@@ -54,7 +46,7 @@ export function CardDrawer() {
         <div>
           {card && (
             <>
-              <span className="chip">{CATEGORY_LABEL[card.category]}</span>
+              <span className="chip">{categoryLabel(card.category)}</span>
               <span className="chip">L{card.level}</span>
               {record && <span className={`chip mastery-${record.mastery}`}>{masteryLabel(record.mastery)}</span>}
             </>

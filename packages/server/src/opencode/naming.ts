@@ -14,8 +14,8 @@ export const TITLE_MAX = 25;
 /** OpenCode's placeholder until the title agent has run (same test as OpenCode's own `isDefaultTitle`). */
 const OPENCODE_DEFAULT = /^(New session - |Child session - )\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const DATED = /^\d{8}-/;
-/** PixelWeb's teaching sessions ("📖 <term>") keep their own titles. */
-const TEACHING = /^📖/u;
+/** PixelWeb's teaching ("📖 <term>") and cloud guide ("🧭 <page>") sessions keep their own titles. */
+const TEACHING = /^(?:📖|🧭)/u;
 
 /** Local "yyyymmdd". */
 export function datePrefix(t: number): string {
@@ -48,7 +48,7 @@ export function applyConvention(title: string, created: number): string {
 /**
  * The title PixelWeb should give this session, or null to leave it alone:
  * subtasks (OpenCode names them after the task, with the agent), sessions
- * still waiting for OpenCode's title, teaching sessions, and titles that
+ * still waiting for OpenCode's title, teaching and guide sessions, and titles that
  * already follow the convention.
  */
 export function conventionalTitle(s: OcSession): string | null {

@@ -578,6 +578,17 @@ function Part({ p, sessionTitle, cache }: { p: OcPart; sessionTitle: string; cac
       );
     case 'patch':
       return <PatchPart p={p as Extract<OcPart, { type: 'patch' }>} />;
+    case 'file': {
+      const f = p as Extract<OcPart, { type: 'file' }>;
+      // an attached image, e.g. the cloud guide's page screenshot
+      if (f.mime.startsWith('image/') && f.url.startsWith('data:image/'))
+        return (
+          <div className="part image">
+            <img src={f.url} alt={f.filename ?? '图片'} />
+          </div>
+        );
+      return <div className="part step">附件 {f.filename ?? f.mime}</div>;
+    }
     case 'subtask': {
       const s = p as Extract<OcPart, { type: 'subtask' }>;
       return (

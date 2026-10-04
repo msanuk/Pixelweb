@@ -251,7 +251,10 @@ http.createServer((req, res) => {
           if (i >= reply.length) { clearInterval(iv); emit({ type: 'message.part.updated', properties: { part: { ...tp } } }); am.time.completed = now(); am.tokens.output = 50; emit({ type: 'message.updated', properties: { info: am } }); emit({ type: 'session.status', properties: { sessionID: id, status: { type: 'idle' } } }); emit({ type: 'session.idle', properties: { sessionID: id } }); }
         }, 60);
         };
-        if (b.system) {
+        if (b.system?.includes('云控制台')) {
+          // a cloud guide session (docs/cloud-guide.md): cites the captured fields as ⟦fN⟧
+          stream(`## 这页在做什么\n创建一台云服务器（ECS 实例）。\n\n## 怎么填\n| 字段 | 建议值 | 理由 |\n| --- | --- | --- |\n| ⟦f1⟧ 付费模式 | 按量付费 | 先试用，随时释放不再扣费 |\n| ⟦f3⟧ 安全组 | 新建，只放行 22 和 8080 | 项目在 8080 端口监听 |\n\n## 注意\n包年包月提前释放只退部分费用。\n\n## 下一步\n填好后点「下一步：网络和安全组」，再捕捉一次。`);
+        } else if (b.system) {
           stream(`**Webhook**（网络钩子）：服务端在事件发生时主动向你登记的 URL 发 HTTP 请求。\n\n在这个项目里，PixelWeb 用的是 SSE 而非 webhook。\n\n检索练习：Webhook 与 SSE 谁先建立连接？`);
         } else {
           // normal prompts ask for permission to run a command first, like opencode's bash tool does

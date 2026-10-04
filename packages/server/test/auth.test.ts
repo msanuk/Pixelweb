@@ -5,12 +5,17 @@ import { loadConfig } from '../src/config.js';
 
 const HOST = 'pixelweb.test:7420';
 
+const DEVICE = { id: 'd1', name: 'Chrome', createdAt: 0 };
+const extTokens = { verify: (t: string) => (t === 'pwx_good' ? DEVICE : null) };
+
 async function makeApp(password?: string): Promise<FastifyInstance> {
   const app = Fastify();
-  registerAuth(app, password);
+  registerAuth(app, password, extTokens);
   app.get('/api/secret', async () => ({ secret: 1 }));
   app.post('/api/act', async () => ({ ok: true }));
   app.get('/ws', async () => ({ upgraded: true }));
+  app.post('/api/ext/act', async (req) => ({ device: req.extToken?.name }));
+  app.post('/api/ext-tokens', async () => ({ created: true }));
   await app.ready();
   return app;
 }
@@ -86,6 +91,37 @@ describe('password login', () => {
     app = await makeApp('s3cret');
     for (let i = 0; i < 10; i++) await login('nope');
     expect((await login('s3cret')).statusCode).toBe(429);
+  });
+});
+
+describe('extension token', () => {
+  const EXT_ORIGIN = 'chrome-extension://abcdefghijklmnop';
+  const bearer = (token: string) => ({ host: HOST, origin: EXT_ORIGIN, authorization: `Bearer ${token}` });
+
+  for (const password of [undefined, 's3cret']) {
+    it(`opens /api/ext/* from the extension's origin, with${password ? '' : 'out'} --password`, async () => {
+      app = await makeApp(password);
+      const ok = await app.inject({ method: 'POST', url: '/api/ext/act', headers: bearer('pwx_good') });
+      expect(ok.statusCode).toBe(200);
+      expect(ok.json()).toEqual({ device: 'Chrome' });
+      expect((await app.inject({ method: 'POST', url: '/%61pi/ext/act', headers: bearer('pwx_good') })).statusCode).toBe(200);
+    });
+  }
+
+  it('needs a valid token there, even on a same-origin request', async () => {
+    app = await makeApp();
+    expect((await app.inject({ method: 'POST', url: '/api/ext/act', headers: bearer('pwx_bad') })).statusCode).toBe(401);
+    expect((await app.inject({ method: 'POST', url: '/api/ext/act', headers: { host: HOST, origin: `http://${HOST}` } })).statusCode).toBe(401);
+    expect((await app.inject({ method: 'POST', url: '/%61pi/ext/act', headers: { host: HOST } })).statusCode).toBe(401);
+  });
+
+  it('opens nothing outside /api/ext/', async () => {
+    app = await makeApp('s3cret');
+    expect((await app.inject({ method: 'POST', url: '/api/act', headers: bearer('pwx_good') })).statusCode).toBe(403);
+    expect((await app.inject({ method: 'GET', url: '/ws', headers: bearer('pwx_good') })).statusCode).toBe(403);
+    expect((await app.inject({ method: 'GET', url: '/api/secret', headers: { authorization: 'Bearer pwx_good' } })).statusCode).toBe(401);
+    // pairing a new token is PixelWeb's own UI: cookie and Origin, not a token
+    expect((await app.inject({ method: 'POST', url: '/api/ext-tokens', headers: { host: HOST, authorization: 'Bearer pwx_good' } })).statusCode).toBe(401);
   });
 });
 

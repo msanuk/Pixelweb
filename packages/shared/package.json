@@ -10,6 +10,10 @@
     "./steps": {
       "types": "./src/steps.d.ts",
       "default": "./src/steps.js"
+    },
+    "./capture": {
+      "types": "./src/capture.d.ts",
+      "default": "./src/capture.js"
     }
   },
   "scripts": {

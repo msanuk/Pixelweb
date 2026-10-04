@@ -1,0 +1,185 @@
+<!doctype html>
+<!--
+  A made-up Alibaba Cloud "create ECS instance" page in the shape of the real
+  console: Fusion-style class names, a top bar and a product menu that the
+  reader should ignore, radios without a radiogroup role, a select drawn
+  around a read-only combobox input. Used by test/extract.test.ts and for
+  trying the extension end to end.
+-->
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>云服务器 ECS - 创建实例</title>
+    <style>
+      body { margin: 0; font: 13px/1.6 -apple-system, "PingFang SC", sans-serif; color: #333; background: #f2f3f5; }
+      header[role="banner"] { display: flex; gap: 16px; align-items: center; height: 48px; padding: 0 16px; background: #fff; border-bottom: 1px solid #e5e5e5; }
+      header input { width: 260px; }
+      .layout { display: flex; }
+      nav.console-menu { width: 180px; padding: 12px 0; background: #fff; border-right: 1px solid #e5e5e5; min-height: calc(100vh - 49px); }
+      nav.console-menu a { display: block; padding: 6px 20px; color: #333; text-decoration: none; }
+      main { flex: 1; padding: 16px 24px 80px; }
+      .next-breadcrumb { color: #888; margin-bottom: 8px; }
+      .next-breadcrumb a { color: #0064c8; text-decoration: none; }
+      h1 { font-size: 20px; margin: 0 0 16px; }
+      .card { background: #fff; border-radius: 4px; padding: 16px 20px; margin-bottom: 16px; }
+      .card h3 { margin: 0 0 12px; font-size: 15px; }
+      .next-form-item { display: flex; margin-bottom: 14px; }
+      .next-form-item-label { width: 140px; flex-shrink: 0; color: #555; padding-top: 4px; }
+      .next-form-item-label.required::before { content: "*"; color: #d93026; margin-right: 2px; }
+      .next-form-item-control { flex: 1; }
+      .next-form-item-help { color: #888; font-size: 12px; margin-top: 2px; }
+      .next-form-item-help.next-form-item-error { color: #d93026; }
+      .next-radio-wrapper { display: inline-flex; align-items: center; margin-right: 16px; }
+      .next-radio-button { display: inline-block; padding: 4px 14px; border: 1px solid #ccc; margin-right: -1px; cursor: pointer; }
+      .next-radio-button[aria-checked="true"] { border-color: #0064c8; color: #0064c8; }
+      input[type="text"], input[type="number"], input[type="password"], textarea, select { padding: 4px 8px; border: 1px solid #ccc; border-radius: 2px; font: inherit; }
+      .next-select { display: inline-flex; position: relative; width: 240px; border: 1px solid #ccc; padding: 4px 8px; background: #fff; }
+      .next-select input { position: absolute; inset: 0; opacity: 0; width: 100%; }
+      .next-select-placeholder { color: #aaa; }
+      .next-switch { width: 44px; height: 22px; border-radius: 11px; border: none; background: #0064c8; vertical-align: middle; }
+      .next-switch[aria-checked="false"] { background: #ccc; }
+      .next-checkbox-wrapper { display: inline-flex; gap: 4px; margin-right: 16px; }
+      footer.buy-bar { position: fixed; left: 0; right: 0; bottom: 0; display: flex; justify-content: flex-end; gap: 16px; align-items: center; padding: 12px 24px; background: #fff; border-top: 1px solid #e5e5e5; }
+      footer.buy-bar button { padding: 6px 24px; background: #ff6a00; color: #fff; border: none; }
+    </style>
+  </head>
+  <body>
+    <header role="banner">
+      <strong>阿里云</strong>
+      <input type="text" placeholder="搜索云产品、文档" />
+      <span>工作台</span><span>费用</span><span>工单</span>
+    </header>
+    <div class="layout">
+      <nav class="console-menu">
+        <a href="#">概览</a>
+        <a href="#">实例</a>
+        <a href="#">镜像</a>
+        <a href="#">弹性块存储</a>
+        <a href="#">安全组</a>
+        <a href="#">密钥对</a>
+        <a href="#">弹性公网 IP</a>
+      </nav>
+      <main>
+        <div class="next-breadcrumb">
+          <span class="next-breadcrumb-item"><a class="next-breadcrumb-text" href="#">云服务器 ECS</a><span class="next-breadcrumb-separator"> / </span></span>
+          <span class="next-breadcrumb-item"><a class="next-breadcrumb-text" href="#">实例</a><span class="next-breadcrumb-separator"> / </span></span>
+          <span class="next-breadcrumb-item"><span class="next-breadcrumb-text">创建实例</span></span>
+        </div>
+        <h1>创建实例</h1>
+
+        <section class="card">
+          <h3>基础配置</h3>
+          <div class="next-form-item">
+            <label class="next-form-item-label required">付费类型</label>
+            <div class="next-form-item-control">
+              <div class="next-radio-group">
+                <label class="next-radio-wrapper"><input type="radio" value="PrePaid" /><span>包年包月</span></label>
+                <label class="next-radio-wrapper"><input type="radio" value="PostPaid" checked /><span>按量付费</span></label>
+                <label class="next-radio-wrapper"><input type="radio" value="Spot" /><span>抢占式实例</span></label>
+              </div>
+              <div class="next-form-item-help">按量付费的实例按秒计费，释放前一直扣费。</div>
+            </div>
+          </div>
+          <div class="next-form-item">
+            <label class="next-form-item-label required" for="region">地域</label>
+            <div class="next-form-item-control">
+              <span class="next-select"><span class="next-select-values"><em title="华东1（杭州）">华东1（杭州）</em></span><input id="region" role="combobox" aria-expanded="false" readonly /></span>
+            </div>
+          </div>
+          <div class="next-form-item">
+            <label class="next-form-item-label required" for="instance-type">实例规格</label>
+            <div class="next-form-item-control">
+              <select id="instance-type">
+                <option>ecs.e-c1m1.large（2 vCPU 2 GiB）</option>
+                <option selected>ecs.e-c1m2.large（2 vCPU 4 GiB）</option>
+                <option>ecs.g7.xlarge（4 vCPU 16 GiB）</option>
+              </select>
+            </div>
+          </div>
+          <div class="next-form-item">
+            <label class="next-form-item-label required" for="image">镜像</label>
+            <div class="next-form-item-control">
+              <span class="next-select"><span class="next-select-placeholder">请选择镜像</span><input id="image" role="combobox" aria-expanded="false" readonly /></span>
+            </div>
+          </div>
+          <div class="next-form-item">
+            <label class="next-form-item-label" for="disk">系统盘容量（GiB）</label>
+            <div class="next-form-item-control">
+              <input id="disk" type="number" value="40" />
+              <div class="next-form-item-help">20 - 2048 GiB</div>
+            </div>
+          </div>
+        </section>
+
+        <section class="card">
+          <h3>网络和安全组</h3>
+          <div class="next-form-item">
+            <label class="next-form-item-label">公网 IP</label>
+            <div class="next-form-item-control">
+              <button type="button" class="next-switch" role="switch" aria-checked="true"></button>
+              <span>分配公网 IPv4 地址</span>
+            </div>
+          </div>
+          <div class="next-form-item">
+            <span class="next-form-item-label" id="bw-mode-label">带宽计费模式</span>
+            <div class="next-form-item-control">
+              <div role="radiogroup" aria-labelledby="bw-mode-label">
+                <span class="next-radio-button" role="radio" aria-checked="false">按固定带宽</span>
+                <span class="next-radio-button" role="radio" aria-checked="true">按使用流量</span>
+              </div>
+            </div>
+          </div>
+          <div class="next-form-item">
+            <label class="next-form-item-label" for="bandwidth">带宽峰值（Mbps）</label>
+            <div class="next-form-item-control">
+              <input id="bandwidth" type="number" value="5" />
+              <div class="next-form-item-help">1 - 200 Mbps，按使用流量时只是上限</div>
+            </div>
+          </div>
+          <div class="next-form-item">
+            <label class="next-form-item-label">安全组规则</label>
+            <div class="next-form-item-control">
+              <label class="next-checkbox-wrapper"><input type="checkbox" checked /><span>HTTP 80</span></label>
+              <label class="next-checkbox-wrapper"><input type="checkbox" /><span>HTTPS 443</span></label>
+              <label class="next-checkbox-wrapper"><input type="checkbox" checked /><span>SSH 22</span></label>
+            </div>
+          </div>
+        </section>
+
+        <section class="card">
+          <h3>管理设置</h3>
+          <div class="next-form-item">
+            <label class="next-form-item-label required">登录凭证</label>
+            <div class="next-form-item-control">
+              <label class="next-radio-wrapper"><input type="radio" name="credential" value="keypair" /><span>密钥对</span></label>
+              <label class="next-radio-wrapper"><input type="radio" name="credential" value="password" checked /><span>自定义密码</span></label>
+            </div>
+          </div>
+          <div class="next-form-item">
+            <label class="next-form-item-label required" for="password">登录密码</label>
+            <div class="next-form-item-control"><input id="password" type="password" value="Hunter2Hunter2!" /></div>
+          </div>
+          <div class="next-form-item">
+            <label class="next-form-item-label" for="name">实例名称</label>
+            <div class="next-form-item-control">
+              <input id="name" type="text" value="pixelweb_server" />
+              <div class="next-form-item-help next-form-item-error">名称不能包含下划线</div>
+            </div>
+          </div>
+          <div class="next-form-item">
+            <label class="next-form-item-label" for="desc">描述</label>
+            <div class="next-form-item-control"><textarea id="desc">部署用，AccessKey ID LTAI5tQ8zXk2Lp9Zr4Tw8Vn1</textarea></div>
+          </div>
+          <div class="next-form-item" style="display: none">
+            <label class="next-form-item-label" for="ram-role">实例 RAM 角色</label>
+            <div class="next-form-item-control"><input id="ram-role" type="text" value="AliyunECSInstanceRole" /></div>
+          </div>
+        </section>
+      </main>
+    </div>
+    <footer class="buy-bar">
+      <span>配置费用：<strong>¥ 0.452</strong> /时</span>
+      <button type="button">确认下单</button>
+    </footer>
+  </body>
+</html>

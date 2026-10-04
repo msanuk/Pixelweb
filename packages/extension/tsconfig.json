@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "noEmit": true,
+    "types": ["chrome", "vite/client"],
+    "allowImportingTsExtensions": true,
+    "paths": { "@web/*": ["../web/src/*"] }
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx", "test/**/*.ts", "vite.config.ts", "vite.content.config.ts"]
+}

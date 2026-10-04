@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CardCategory, KnowledgeIndexEntry, LearningRecord } from '@pixelweb/shared';
-import { facetCounts, filterCards, matchesQuery, stepSelection } from '../src/lib/knowledge';
+import { cardFromHash, cardLink, facetCounts, filterCards, matchesQuery, stepSelection } from '../src/lib/knowledge';
 
 const card = (id: string, category: CardCategory, extra: Partial<KnowledgeIndexEntry> = {}): KnowledgeIndexEntry => ({
   id,
@@ -52,7 +52,7 @@ describe('facetCounts', () => {
   it('counts each facet against the search and the other facet only', () => {
     const { cat, mastery } = facetCounts(cards, { cat: 'git', mastery: 'unseen', q: '' }, records);
     // categories respect mastery=unseen: llm (ai), branch (git)
-    expect(cat).toEqual({ all: 2, ai: 1, git: 1, web: 0, tooling: 0, architecture: 0, general: 0 });
+    expect(cat).toEqual({ all: 2, ai: 1, git: 1, web: 0, tooling: 0, architecture: 0, cloud: 0, general: 0 });
     // mastery respects cat=git: commit (seen), branch (unseen)
     expect(mastery).toEqual({ all: 2, unseen: 1, seen: 1, learning: 0, mastered: 0 });
   });
@@ -75,5 +75,21 @@ describe('stepSelection', () => {
     expect(stepSelection(list, null, 1)).toBe(0);
     expect(stepSelection(list, 'zzz', -1)).toBe(2);
     expect(stepSelection([], null, 1)).toBe(-1);
+  });
+});
+
+describe('card links', () => {
+  it('round-trips a card id through the link the extension opens', () => {
+    expect(cardLink('http://10.0.0.5:7420', 'tool-call')).toBe('http://10.0.0.5:7420/#card=tool-call');
+    expect(cardFromHash(new URL(cardLink('http://h', '安全组')).hash)).toBe('安全组');
+    expect(cardFromHash('#card=tool-call')).toBe('tool-call');
+  });
+
+  it('ignores other hashes', () => {
+    expect(cardFromHash('')).toBeNull();
+    expect(cardFromHash('#card=')).toBeNull();
+    expect(cardFromHash('#card=a/b')).toBeNull();
+    expect(cardFromHash('#other=x')).toBeNull();
+    expect(cardFromHash('#card=%E0%A4%A')).toBeNull();
   });
 });

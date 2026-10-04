@@ -23,6 +23,10 @@ import { LearningStore } from './knowledge/learning.js';
 import { belongsTo, samePath, toProjectOptions } from './project.js';
 import { UsageIndex } from './usage.js';
 import { TEACHING_PERMISSION, TEACHING_SYSTEM_PROMPT, buildExplainPrompt, teachingSessionTitle } from './knowledge/explain.js';
+import { ExtTokenStore } from './ext/tokens.js';
+import { GuideRegistry } from './ext/guides.js';
+import { GUIDE_SYSTEM_PROMPT } from './ext/prompt.js';
+import { registerExtRoutes } from './ext/routes.js';
 
 const VERSION = '0.1.0';
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -56,6 +60,9 @@ async function main(): Promise<void> {
   let knowledge = new KnowledgeStore(knowledgeDirs(cfg.projectRoot));
   const learning = new LearningStore(cfg.dataDir);
   const teachingSessions = new Set<string>();
+  // the browser extension's pairing tokens and the cloud guide sessions it started (docs/cloud-guide.md)
+  const extTokens = new ExtTokenStore(cfg.dataDir);
+  const guides = new GuideRegistry(cfg.dataDir);
   let archCache: Awaited<ReturnType<typeof analyseProject>> | null = null;
   let archLevel: 'file' | 'dir' = 'dir';
 
@@ -64,7 +71,7 @@ async function main(): Promise<void> {
   // keyed by session id, which is unique across projects, so it survives a project switch
   const usage = new UsageIndex((id) => opencode.messages(id));
 
-  await Promise.all([knowledge.load(), learning.load()]);
+  await Promise.all([knowledge.load(), learning.load(), extTokens.load(), guides.load()]);
 
   /** Re-resolves agent commits against the current log; broadcasts only when something changed. */
   const publishCommits = () => {
@@ -179,7 +186,7 @@ async function main(): Promise<void> {
   // ---- http -------------------------------------------------------------------
   const app = Fastify({ logger: false });
   // No CORS: the UI is same-origin (vite proxies in dev), and allowing other origins would let any website drive the agent.
-  registerAuth(app, cfg.password);
+  registerAuth(app, cfg.password, extTokens);
   await app.register(websocket);
 
   const publicDir = path.join(PKG_ROOT, 'public');
@@ -351,12 +358,16 @@ async function main(): Promise<void> {
         ...inherited,
         parts: [{ type: 'text', text }],
         ...(teachingSessions.has(req.params.id) ? { system: TEACHING_SYSTEM_PROMPT } : {}),
+        ...(guides.has(req.params.id) ? { system: GUIDE_SYSTEM_PROMPT } : {}),
       });
       return { ok: true };
     } catch (e) {
       return reply.code(502).send({ error: String(e instanceof Error ? e.message : e) });
     }
   });
+
+  // -- the browser extension: pairing tokens, and the cloud guide sessions it drives
+  registerExtRoutes(app, { version: VERSION, opencode, cfg, tokens: extTokens, guides, knowledge: () => knowledge });
 
   // -- projects: OpenCode serves many; PixelWeb visualises one at a time
   app.get('/api/projects', async (): Promise<ProjectOption[]> => {

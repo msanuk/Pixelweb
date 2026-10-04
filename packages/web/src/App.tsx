@@ -13,6 +13,7 @@ import { openCard, refreshSessions, selectSession, setState, useStore, type Tab 
 import { displayTitle, isTeachingTitle, relTime } from './lib/format';
 import { api } from './lib/api';
 import { descendants, sessionTree, subagentTitle } from './lib/sessions';
+import { cardFromHash } from './lib/knowledge';
 import { THEMES, setTheme, useTheme } from './lib/theme';
 
 const TABS: { id: Tab; label: string; icon: IconName }[] = [
@@ -36,6 +37,19 @@ export function App() {
   // 'connection': opened from the disconnected badge, straight to the OpenCode address
   const [settingsOpen, setSettingsOpen] = useState<boolean | 'connection'>(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+
+  // a card link from the browser extension (#card=<id>): open its drawer, then drop the hash so a reload doesn't
+  useEffect(() => {
+    const open = () => {
+      const id = cardFromHash(location.hash);
+      if (!id) return;
+      openCard(id);
+      history.replaceState(null, '', location.pathname + location.search);
+    };
+    open();
+    window.addEventListener('hashchange', open);
+    return () => window.removeEventListener('hashchange', open);
+  }, []);
 
   // the two dialogs never stack: opening one closes the other
   useEffect(() => {

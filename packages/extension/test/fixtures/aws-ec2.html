@@ -1,0 +1,82 @@
+<!doctype html>
+<!--
+  A made-up AWS "launch an instance" page in the shape of Cloudscape: labels
+  tied with for / aria-labelledby, descriptions with aria-describedby, a
+  select drawn as a button, a toggle that is a checkbox with role="switch",
+  an "Info" link beside a label, and the help panel in a closed drawer.
+  Used by test/extract.test.ts.
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Launch an instance | EC2 | us-east-1</title>
+  </head>
+  <body>
+    <div role="banner"><input type="search" aria-label="Search" /><button type="button">us-east-1</button></div>
+    <nav aria-label="Breadcrumbs">
+      <ol>
+        <li><a href="#">EC2</a></li>
+        <li><a href="#">Instances</a></li>
+        <li><span>Launch an instance</span></li>
+      </ol>
+    </nav>
+    <main>
+      <h1>Launch an instance</h1>
+      <div class="awsui_container">
+        <h2>Name and tags</h2>
+        <div class="awsui_form-field">
+          <div class="awsui_label-wrapper">
+            <label class="awsui_label" for="name-input">Name</label>
+            <span class="awsui_info"><a class="awsui_link awsui_variant-info_4c84z" role="button" tabindex="0"><span>Info</span><span hidden>:</span></a></span>
+          </div>
+          <div class="awsui_description" id="name-desc">A tag with the key "Name".</div>
+          <input id="name-input" type="text" aria-describedby="name-desc" value="pixelweb" />
+        </div>
+      </div>
+      <div class="awsui_container">
+        <h2>Instance type</h2>
+        <div class="awsui_form-field">
+          <label class="awsui_label" id="type-label">Instance type</label>
+          <button type="button" aria-haspopup="listbox" aria-labelledby="type-label"><span>t3.micro</span></button>
+        </div>
+        <div class="awsui_form-field">
+          <label class="awsui_label" id="key-label">Key pair name</label>
+          <button type="button" aria-haspopup="listbox" aria-labelledby="key-label"><span class="awsui_placeholder">Select</span></button>
+          <div class="awsui_constraint">You can use a key pair to securely connect to your instance.</div>
+        </div>
+      </div>
+      <div class="awsui_container">
+        <h2>Network settings</h2>
+        <div class="awsui_form-field">
+          <input type="checkbox" role="switch" aria-label="Auto-assign public IP" checked />
+        </div>
+        <fieldset>
+          <legend>Firewall (security groups)</legend>
+          <label><input type="radio" name="fw" checked /> Create security group</label>
+          <label><input type="radio" name="fw" /> Select existing security group</label>
+        </fieldset>
+        <div class="awsui_form-field">
+          <label class="awsui_label" for="ssh-from">Allow SSH traffic from</label>
+          <select id="ssh-from">
+            <option selected>Anywhere 0.0.0.0/0</option>
+            <option>My IP</option>
+          </select>
+        </div>
+      </div>
+      <div class="awsui_container">
+        <h2>Configure storage</h2>
+        <div class="awsui_form-field">
+          <label class="awsui_label" for="size">Size (GiB)</label>
+          <input id="size" role="spinbutton" value="8" aria-required="true" />
+        </div>
+      </div>
+    </main>
+    <aside aria-label="Help panel" class="awsui_drawer awsui_drawer-hidden" style="display: none">
+      <div class="awsui_help-panel_1d237_100j2_9">
+        <h2>Launch an instance</h2>
+        <p>Amazon EC2 allows you to create virtual machines, or instances, that run on the AWS Cloud.</p>
+        <p>Choose an AMI, an instance type and a key pair, then review the network settings before you launch.</p>
+      </div>
+    </aside>
+  </body>
+</html>

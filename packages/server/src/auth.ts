@@ -1,5 +1,13 @@
 import crypto from 'node:crypto';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import type { ExtTokenInfo } from '@pixelweb/shared';
+
+declare module 'fastify' {
+  interface FastifyRequest {
+    /** the paired browser extension behind an `/api/ext/*` request */
+    extToken: ExtTokenInfo | null;
+  }
+}
 
 /**
  * Access control for the PixelWeb server.
@@ -10,6 +18,11 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
  * - Password (optional, --password): a login sets an HttpOnly session cookie;
  *   every /api and /ws request then needs that cookie. Static UI files stay
  *   public so the browser can load the login screen — they hold no data.
+ * - Browser extension (docs/cloud-guide.md): `/api/ext/*`, and nothing else,
+ *   takes a pairing token as `Authorization: Bearer`, with or without
+ *   --password. Its requests come from chrome-extension://… and can't send the
+ *   SameSite cookie, so neither the Origin check nor the cookie apply there;
+ *   those routes only reach guide sessions and never answer permission requests.
  */
 
 export const COOKIE = 'pixelweb_session';
@@ -17,6 +30,7 @@ const SESSION_TTL_MS = 30 * 24 * 3600 * 1000;
 const MAX_FAILURES = 10;
 const FAILURE_WINDOW_MS = 15 * 60 * 1000;
 const PUBLIC_API = new Set(['/api/auth', '/api/login']);
+export const EXT_PREFIX = '/api/ext/';
 
 export class SessionStore {
   private readonly sessions = new Map<string, number>(); // token -> expiresAt
@@ -121,10 +135,20 @@ function sessionCookie(req: FastifyRequest, value: string, maxAgeSec: number): s
   return [`${COOKIE}=${value}`, 'Path=/', 'HttpOnly', 'SameSite=Strict', `Max-Age=${maxAgeSec}`, ...(isHttps(req) ? ['Secure'] : [])].join('; ');
 }
 
-export function registerAuth(app: FastifyInstance, password: string | undefined): void {
+function bearer(req: FastifyRequest): string | undefined {
+  const m = /^Bearer\s+(\S+)$/i.exec(req.headers.authorization ?? '');
+  return m?.[1];
+}
+
+export function registerAuth(
+  app: FastifyInstance,
+  password: string | undefined,
+  extTokens?: { verify(token: string): ExtTokenInfo | null },
+): void {
   const store = password ? new SessionStore(password) : null;
   const limiter = new LoginLimiter();
   const tokenOf = (req: FastifyRequest) => parseCookies(req.headers.cookie)[COOKIE];
+  app.decorateRequest('extToken', null);
 
   app.addHook('onRequest', async (req: FastifyRequest, reply: FastifyReply) => {
     // Judge the route the router matched, not just the raw URL: the router decodes %xx,
@@ -135,6 +159,14 @@ export function registerAuth(app: FastifyInstance, password: string | undefined)
     const isApi = [route ?? '', raw].some((p) => p === '/api' || p.startsWith('/api/'));
     if (!isWs && !isApi) return; // static UI
 
+    // the matched route decides, so an encoded path can't borrow the token rules or dodge them
+    if ((route ?? raw).startsWith(EXT_PREFIX)) {
+      const token = bearer(req);
+      const info = token ? (extTokens?.verify(token) ?? null) : null;
+      if (!info) return reply.code(401).send({ error: 'pairing token required' });
+      req.extToken = info;
+      return;
+    }
     if ((isWs || req.method !== 'GET') && !sameOrigin(req)) {
       return reply.code(403).send({ error: 'cross-origin request refused' });
     }

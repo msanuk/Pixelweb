@@ -2,6 +2,8 @@ import type {
   ArchGraph,
   ExplainRequest,
   ExplainResponse,
+  ExtTokenCreated,
+  ExtTokenInfo,
   GitSnapshot,
   KnowledgeCard,
   KnowledgeIndexEntry,
@@ -85,4 +87,8 @@ export const api = {
   mastery: (cardId: string, mastery: MasteryLevel) =>
     req<LearningState>('/api/learning/mastery', { method: 'POST', body: JSON.stringify({ cardId, mastery }) }),
   explain: (body: ExplainRequest) => req<ExplainResponse>('/api/explain', { method: 'POST', body: JSON.stringify(body) }),
+  /** browsers paired with the cloud guide extension; a new token comes back only once */
+  extTokens: () => req<ExtTokenInfo[]>('/api/ext-tokens'),
+  createExtToken: (name: string) => req<ExtTokenCreated>('/api/ext-tokens', { method: 'POST', body: JSON.stringify({ name }) }),
+  revokeExtToken: (id: string) => req<{ ok: boolean }>(`/api/ext-tokens/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 };

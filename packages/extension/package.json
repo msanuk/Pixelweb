@@ -1,0 +1,27 @@
+{
+  "name": "@pixelweb/extension",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build && vite build -c vite.content.config.ts",
+    "build:e2e": "vite build --mode e2e && vite build -c vite.content.config.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@pixelweb/shared": "*",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.3.4",
+    "@types/react": "^18.3.11",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "happy-dom": "^20.14.5",
+    "typescript": "^5.6.2",
+    "vite": "^8.3.1",
+    "vitest": "^4.1.11"
+  }
+}

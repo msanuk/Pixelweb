@@ -1,0 +1,184 @@
+/*
+ * Themes: monochrome by design. "accent" is ink (the text colour), selection is
+ * a neutral wash, and colour is reserved for status (ok / bad / warn) plus a few
+ * low-saturation series colours for graphs (git lanes, languages).
+ * Paper (light) is the default; graphite (dark) applies via data-theme or, when
+ * no explicit theme is chosen, via prefers-color-scheme.
+ * data-palette="clay" (陶土) swaps the family: cream and slate with a clay
+ * accent and serif prose, again in a light and a dark variant. Its selectors
+ * carry one more attribute than the ink ones, so they win whatever the order.
+ */
+:root {
+  color-scheme: light;
+  --bg: #f5f4f0;
+  --panel: #fcfbf9;
+  --panel-2: #eeece7;
+  --border: #e2dfd8;
+  --border-strong: #cdc9c0;
+  --text: #1f1e1c;
+  --muted: #75716a;
+  --accent: #1f1e1c;
+  --on-accent: #fcfbf9;
+  --accent-soft: #e8e5de;
+  --ok: #4f7a3a;
+  --bad: #b1432f;
+  --warn: #9a6614;
+  --edge: #b3aea4;
+  --term-line: #a8a39a;
+  --shadow: rgba(40, 36, 28, 0.12);
+  --series-1: #5b5a56;
+  --series-2: #6d7f5a;
+  --series-3: #9a7b43;
+  --series-4: #5f7285;
+  --series-5: #9a5f4c;
+  --series-6: #7d7088;
+  /* usage chart: the uncached part of a prompt, against ink for the cached part */
+  --chart-miss: #93a6b8;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  /* reply and card text */
+  --prose: var(--sans);
+}
+:root[data-theme="graphite"] {
+  color-scheme: dark;
+  --bg: #141413;
+  --panel: #1b1b19;
+  --panel-2: #242422;
+  --border: #2f2e2b;
+  --border-strong: #45433f;
+  --text: #e7e5e0;
+  --muted: #8e8a82;
+  --accent: #e7e5e0;
+  --on-accent: #141413;
+  --accent-soft: #2c2b28;
+  --ok: #8db178;
+  --bad: #d8806c;
+  --warn: #d0a452;
+  --edge: #4a4843;
+  --term-line: #6a665f;
+  --shadow: rgba(0, 0, 0, 0.45);
+  --series-1: #b8b5ae;
+  --series-2: #9fb08b;
+  --series-3: #c9a86e;
+  --series-4: #93a6b8;
+  --series-5: #c48d7a;
+  --series-6: #aa9cb3;
+  /* usage chart: the uncached part of a prompt, against ink for the cached part */
+  --chart-miss: #5f7285;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    color-scheme: dark;
+    --bg: #141413;
+    --panel: #1b1b19;
+    --panel-2: #242422;
+    --border: #2f2e2b;
+    --border-strong: #45433f;
+    --text: #e7e5e0;
+    --muted: #8e8a82;
+    --accent: #e7e5e0;
+    --on-accent: #141413;
+    --accent-soft: #2c2b28;
+    --ok: #8db178;
+    --bad: #d8806c;
+    --warn: #d0a452;
+    --edge: #4a4843;
+    --term-line: #6a665f;
+    --shadow: rgba(0, 0, 0, 0.45);
+    --series-1: #b8b5ae;
+    --series-2: #9fb08b;
+    --series-3: #c9a86e;
+    --series-4: #93a6b8;
+    --series-5: #c48d7a;
+    --series-6: #aa9cb3;
+    /* usage chart: the uncached part of a prompt, against ink for the cached part */
+    --chart-miss: #5f7285;
+  }
+}
+
+/* 陶土 (clay), light */
+:root[data-palette="clay"] {
+  color-scheme: light;
+  --bg: #f0eee6;
+  --panel: #faf9f5;
+  --panel-2: #e8e5da;
+  --border: #ddd9cd;
+  --border-strong: #c8c2b3;
+  --text: #141413;
+  --muted: #66635a;
+  --accent: #b4532f;
+  --on-accent: #faf9f5;
+  --accent-soft: #ecdccf;
+  --ok: #4d7a3a;
+  /* wine and olive, pulled away from the clay accent */
+  --bad: #8e1d3b;
+  --warn: #76690f;
+  --edge: #b8b1a2;
+  --term-line: #c9a08c;
+  --shadow: rgba(60, 40, 20, 0.12);
+  --series-1: #5b5a56;
+  --series-2: #6d7f5a;
+  --series-3: #9a7b43;
+  --series-4: #5f7285;
+  --series-5: #9a5f4c;
+  --series-6: #7d7088;
+  --chart-miss: #93a6b8;
+  --prose: Georgia, "Songti SC", "Noto Serif SC", "Source Han Serif SC", "Noto Serif CJK SC", -apple-system, "PingFang SC", "Microsoft YaHei", serif;
+}
+/* 陶土 (clay), dark */
+:root[data-palette="clay"][data-theme="graphite"] {
+  color-scheme: dark;
+  --bg: #1f1e1d;
+  --panel: #262624;
+  --panel-2: #30302d;
+  --border: #3b3a36;
+  --border-strong: #52504a;
+  --text: #f0eee6;
+  --muted: #a29e93;
+  --accent: #d97757;
+  --on-accent: #1f1e1d;
+  --accent-soft: #40302a;
+  --ok: #8db178;
+  /* pink-leaning so an error doesn't read as the clay accent */
+  --bad: #ff8fa3;
+  --warn: #d6b457;
+  --edge: #57544d;
+  --term-line: #8a6a5b;
+  --shadow: rgba(0, 0, 0, 0.45);
+  --series-1: #b8b5ae;
+  --series-2: #9fb08b;
+  --series-3: #c9a86e;
+  --series-4: #93a6b8;
+  --series-5: #c48d7a;
+  --series-6: #aa9cb3;
+  --chart-miss: #5f7285;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-palette="clay"]:not([data-theme]) {
+    color-scheme: dark;
+    --bg: #1f1e1d;
+    --panel: #262624;
+    --panel-2: #30302d;
+    --border: #3b3a36;
+    --border-strong: #52504a;
+    --text: #f0eee6;
+    --muted: #a29e93;
+    --accent: #d97757;
+    --on-accent: #1f1e1d;
+    --accent-soft: #40302a;
+    --ok: #8db178;
+    /* pink-leaning so an error doesn't read as the clay accent */
+    --bad: #ff8fa3;
+    --warn: #d6b457;
+    --edge: #57544d;
+    --term-line: #8a6a5b;
+    --shadow: rgba(0, 0, 0, 0.45);
+    --series-1: #b8b5ae;
+    --series-2: #9fb08b;
+    --series-3: #c9a86e;
+    --series-4: #93a6b8;
+    --series-5: #c48d7a;
+    --series-6: #aa9cb3;
+    --chart-miss: #5f7285;
+  }
+}
