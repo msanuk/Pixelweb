@@ -9,11 +9,18 @@
 
 export type Selector<S, T> = (s: S) => T;
 
-/** Object.is on primitives; one-level comparison for arrays and plain objects. */
+function isPlainObject(x: object): boolean {
+  const proto = Object.getPrototypeOf(x);
+  return proto === Object.prototype || proto === null;
+}
+
+/** Object.is on primitives; one-level comparison for arrays and plain objects. Anything else only equals itself. */
 export function shallowEqual(a: unknown, b: unknown): boolean {
   if (Object.is(a, b)) return true;
   if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
   if (Array.isArray(a) !== Array.isArray(b)) return false;
+  // Set, Map, Date… have no enumerable keys, so a key comparison would call any two of them equal
+  if (!Array.isArray(a) && (!isPlainObject(a) || !isPlainObject(b))) return false;
   if (Array.isArray(a) && Array.isArray(b)) {
     if (a.length !== b.length) return false;
     for (let i = 0; i < a.length; i++) if (!Object.is(a[i], b[i])) return false;
@@ -31,15 +38,14 @@ export function shallowEqual(a: unknown, b: unknown): boolean {
 
 /**
  * Wraps a selector so that it returns the previous result whenever the new one is `isEqual` to it.
- * Pass a getter (`() => selector`) when the selector itself changes between renders (inline arrow
- * functions) — the memo then always calls the latest one while keeping its cache.
+ * The selector is taken through a getter so an inline arrow function that changes between renders
+ * is always the latest one while the cache survives.
  */
-export function memoSelector<S, T>(selector: Selector<S, T> | (() => Selector<S, T>), isEqual: (a: T, b: T) => boolean): Selector<S, T> {
+export function memoSelector<S, T>(getSelector: () => Selector<S, T>, isEqual: (a: T, b: T) => boolean): Selector<S, T> {
   let has = false;
   let prev: T;
   return (s: S) => {
-    const sel = selector.length === 0 ? (selector as () => Selector<S, T>)() : (selector as Selector<S, T>);
-    const next = sel(s);
+    const next = getSelector()(s);
     if (has && isEqual(prev, next)) return prev;
     has = true;
     prev = next;

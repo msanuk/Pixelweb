@@ -74,6 +74,47 @@ describe('mock opencode server', () => {
     expect((await fetch(base + '/global/health')).status).toBe(200);
   });
 
+  it('answers a syntactically valid but falsy JSON body instead of hanging', async () => {
+    const res = await fetch(base + '/session', { method: 'POST', body: 'null', headers: { 'content-type': 'application/json' }, signal: AbortSignal.timeout(2000) });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { title: string }).title).toMatch(/^New session/);
+  });
+
+  it('does not raise a permission request for a prompt that was aborted first', async () => {
+    const { events, stop } = await listen();
+    await sleep(50);
+    const { id } = (await (await post('/session', JSON.stringify({ title: 'abort before permission' }))).json()) as { id: string };
+    await post(`/session/${id}/prompt_async`, JSON.stringify({ parts: [{ type: 'text', text: '跑测试' }] })); // no system → asks for permission after 400 ms
+    await sleep(100);
+    await post(`/session/${id}/abort`);
+    await sleep(700);
+    stop();
+    expect(events.filter((e) => e.type === 'permission.asked' && e.properties.sessionID === id)).toEqual([]);
+    const pending = (await (await fetch(base + '/permission')).json()) as { sessionID: string }[];
+    expect(pending.filter((p) => p.sessionID === id)).toEqual([]);
+    expect(events.some((e) => e.type === 'session.idle' && e.properties.sessionID === id)).toBe(true);
+  });
+
+  it('a second prompt while the first reply streams does not leave an orphan stream behind', async () => {
+    const { events, stop } = await listen();
+    await sleep(50);
+    const { id } = (await (await post('/session', JSON.stringify({ title: 'twice' }))).json()) as { id: string };
+    const body = JSON.stringify({ parts: [{ type: 'text', text: 'x'.repeat(200) }], system: '教学' });
+    await post(`/session/${id}/prompt_async`, body);
+    await sleep(120);
+    await post(`/session/${id}/prompt_async`, body);
+    await sleep(120);
+    await post(`/session/${id}/abort`);
+    await sleep(100);
+    const mark = Date.now();
+    await sleep(400);
+    stop();
+    const late = events.filter((e) => e.at > mark && e.type === 'message.part.updated' && e.properties.part?.sessionID === id);
+    expect(late).toEqual([]);
+    const msgs = (await (await fetch(`${base}/session/${id}/message`)).json()) as { info: { role: string; time: { completed?: number } } }[];
+    for (const m of msgs.filter((x) => x.info.role === 'assistant')) expect(m.info.time.completed).toBeTypeOf('number');
+  });
+
   it('stops streaming parts once a session is aborted', async () => {
     const { events, stop } = await listen();
     await sleep(50);

@@ -151,10 +151,10 @@ export function ArchGraph() {
     <div className="arch">
       <header className="panel-head">
         <div>
-          <button className="term strong" onClick={() => openCard('dependency-graph', `项目 ${graph.root}：${graph.stats.files} 个文件，${graph.stats.imports} 条 import`)}>
+          <button className="term strong" onClick={() => openCard('dependency-graph', `项目 ${graph.root}：${graph.stats.files} 个文件，${graph.stats.imports} 条依赖`)}>
             依赖图
           </button>{' '}
-          · {graph.stats.files} 文件 · {graph.stats.imports} import · {graph.nodes.length} 节点 · {graph.edges.length} 边
+          · {graph.stats.files} 文件 · {graph.stats.imports} 依赖 · {graph.nodes.length} 节点 · {graph.edges.length} 边
           {cyclicCount > 0 && (
             <>
               {' · '}

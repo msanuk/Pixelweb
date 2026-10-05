@@ -14,12 +14,19 @@ export const UI_NOT_BUILT =
  * so a later build is picked up without restarting the server.
  */
 export async function registerUi(app: FastifyInstance, publicDir: string): Promise<void> {
-  fs.mkdirSync(publicDir, { recursive: true });
-  await app.register(fastifyStatic, { root: publicDir, prefix: '/' });
+  let serving = true;
+  try {
+    fs.mkdirSync(publicDir, { recursive: true });
+    await app.register(fastifyStatic, { root: publicDir, prefix: '/' });
+  } catch (e) {
+    // read-only install (global npm, packaged app): the API and WebSocket still run, pages say why there is no UI
+    serving = false;
+    console.warn(`[pixelweb] cannot serve the UI from ${publicDir}: ${e instanceof Error ? e.message : e}`);
+  }
   app.setNotFoundHandler((req, reply) => {
     const url = req.raw.url ?? '';
     if (url.startsWith('/api') || url.startsWith('/ws')) return reply.code(404).send({ error: 'not found' });
-    if (!fs.existsSync(path.join(publicDir, 'index.html'))) return reply.code(503).type('text/plain; charset=utf-8').send(UI_NOT_BUILT);
+    if (!serving || !fs.existsSync(path.join(publicDir, 'index.html'))) return reply.code(503).type('text/plain; charset=utf-8').send(UI_NOT_BUILT);
     return reply.sendFile('index.html');
   });
 }

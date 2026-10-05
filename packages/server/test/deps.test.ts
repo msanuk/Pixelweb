@@ -157,6 +157,32 @@ describe('analyseProject on a monorepo fixture', () => {
     expect(g.stats.imports).toBe(g.edges.reduce((n, e) => n + e.weight, 0));
   });
 
+  it('counts only drawn externals in stats.externals, matching imports', async () => {
+    const root = fixture({
+      'src/a.ts': "import x from 'aaa'; import y from 'aaa'; import z from 'bbb';\n",
+      'src/b.ts': "import q from 'ccc';\n",
+    });
+    const g = await analyseProject(root, { level: 'file', maxExternals: 1 });
+    const ext = g.nodes.filter((n) => n.kind === 'external').map((n) => n.label);
+    expect(ext).toEqual(['aaa']);
+    expect(g.stats.externals).toBe(1);
+    expect(g.stats.imports).toBe(2);
+    expect(g.stats.imports).toBe(g.edges.reduce((n, e) => n + e.weight, 0));
+  });
+
+  it('normalises "./" workspace entries so negations match and dirs are clean', async () => {
+    const root = fixture({
+      'package.json': JSON.stringify({ workspaces: ['./packages/shared/', './packages/legacy', '!./packages/legacy'] }),
+      'packages/shared/package.json': JSON.stringify({ name: '@acme/shared' }),
+      'packages/shared/src/index.ts': '',
+      'packages/legacy/package.json': JSON.stringify({ name: '@acme/legacy' }),
+      'packages/legacy/src/index.ts': '',
+    });
+    const ws = await loadWorkspaces(root, new Set(['packages/shared/src/index.ts', 'packages/legacy/src/index.ts']));
+    expect(ws.get('@acme/shared')).toEqual({ dir: 'packages/shared', entry: 'packages/shared/src/index.ts' });
+    expect(ws.has('@acme/legacy')).toBe(false);
+  });
+
   it('does not throw on a workspaces field that is not a list of strings', async () => {
     const root = fixture({ 'package.json': JSON.stringify({ workspaces: { packages: [42, 'packages/*'] } }), 'packages/a/package.json': '{"name":"a"}', 'packages/a/index.ts': '' });
     await expect(loadWorkspaces(root, new Set(['packages/a/index.ts']))).resolves.toEqual(new Map([['a', { dir: 'packages/a', entry: 'packages/a/index.ts' }]]));

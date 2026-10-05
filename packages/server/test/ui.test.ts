@@ -46,6 +46,18 @@ describe('registerUi', () => {
     await app.close();
   });
 
+  it('still serves the API when the UI directory cannot be created', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pw-ui-'));
+    tmp.push(dir);
+    fs.writeFileSync(path.join(dir, 'blocker'), ''); // a file where the parent directory should be → mkdir fails (ENOTDIR)
+    const app = await build(path.join(dir, 'blocker', 'public'));
+    expect((await app.inject({ url: '/api/ping' })).json()).toEqual({ ok: true });
+    const page = await app.inject({ url: '/' });
+    expect(page.statusCode).toBe(503);
+    expect(page.body).toMatch(/not built/i);
+    await app.close();
+  });
+
   it('keeps /api and /ws out of the SPA fallback', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pw-ui-'));
     tmp.push(dir);

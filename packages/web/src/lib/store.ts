@@ -131,8 +131,10 @@ export function useStore<T>(selector: Selector<State, T>, isEqual?: (a: T, b: T)
   // always call the latest inline selector, but keep one memo per hook instance
   const selectorRef = useRef(selector);
   selectorRef.current = selector;
+  const isEqualRef = useRef(isEqual);
+  isEqualRef.current = isEqual;
   const memoRef = useRef<Selector<State, T> | null>(null);
-  if (isEqual && !memoRef.current) memoRef.current = memoSelector(() => selectorRef.current, isEqual);
+  if (isEqual && !memoRef.current) memoRef.current = memoSelector(() => selectorRef.current, (a, b) => isEqualRef.current!(a, b));
   const get = isEqual ? () => memoRef.current!(state) : () => selectorRef.current(state);
   return useSyncExternalStore(subscribe, get, get);
 }

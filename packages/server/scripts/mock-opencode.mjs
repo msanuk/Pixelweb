@@ -162,14 +162,20 @@ const pendingPermissions = new Map(); // requestID -> { request, resume(reply) }
   });
 }
 /** Reads and parses a JSON body; answers 400 and resolves null when it is malformed. */
+/** Resolved in place of the body when it is malformed: the 400 has been sent, the caller just returns. */
+const BAD_BODY = Symbol('bad body');
 const readBody = (req, res) => new Promise((r) => {
   let b = ''; req.on('data', (c) => (b += c));
-  req.on('end', () => { try { r(JSON.parse(b || '{}')); } catch { json(res, 400, { error: 'invalid JSON body' }); r(null); } });
+  req.on('end', () => {
+    let parsed;
+    try { parsed = JSON.parse(b || '{}'); } catch { json(res, 400, { error: 'invalid JSON body' }); return r(BAD_BODY); }
+    r(parsed && typeof parsed === 'object' ? parsed : {}); // `null`, `false`, `0` are valid JSON: treat as an empty body
+  });
 });
 /** sessionID → the reply currently streaming, so /abort can stop it */
 const streaming = new Map();
 const finishReply = (id, am) => {
-  streaming.delete(id);
+  if (streaming.get(id)?.am === am) streaming.delete(id);
   am.time.completed = now(); am.tokens.output = 50;
   emit({ type: 'message.updated', properties: { info: am } });
   emit({ type: 'session.status', properties: { sessionID: id, status: { type: 'idle' } } });
@@ -178,11 +184,12 @@ const finishReply = (id, am) => {
 const abortSession = (id) => {
   const cur = streaming.get(id);
   if (cur) { clearInterval(cur.timer); emit({ type: 'message.part.updated', properties: { part: { ...cur.tp } } }); finishReply(id, cur.am); }
-  // a prompt still waiting on a permission is cancelled too
+  // a prompt still waiting on a permission (or about to ask for one) is cancelled too
   for (const [requestID, pending] of pendingPermissions) {
     if (pending.request.sessionID !== id || !pending.am) continue;
     pendingPermissions.delete(requestID);
-    emit({ type: 'permission.replied', properties: { sessionID: id, requestID, reply: 'reject' } });
+    clearTimeout(pending.askTimer);
+    if (pending.asked) emit({ type: 'permission.replied', properties: { sessionID: id, requestID, reply: 'reject' } });
     finishReply(id, pending.am);
   }
 };
@@ -209,7 +216,7 @@ const server = http.createServer(async (req, res) => {
     if (!s) return json(res, 404, { error: 'no such session' });
     if (req.method === 'GET') return json(res, 200, s);
     if (req.method === 'PATCH') {
-      const b = await readBody(req, res); if (!b) return;
+      const b = await readBody(req, res); if (b === BAD_BODY) return;
       if (typeof b.title === 'string') s.title = b.title;
       s.time.updated = now();
       emit({ type: 'session.updated', properties: { sessionID: s.id, info: s } });
@@ -217,17 +224,17 @@ const server = http.createServer(async (req, res) => {
     }
   }
   if (p === '/session' && req.method === 'POST') {
-    const b = await readBody(req, res); if (!b) return;
+    const b = await readBody(req, res); if (b === BAD_BODY) return;
     const s = { id: 'ses_' + counter++, projectID: 'p', directory: dir, title: b.title ?? `New session - ${new Date().toISOString()}`, version: '1', time: { created: now(), updated: now() } };
     if (b.parentID) s.parentID = b.parentID;
     sessions.unshift(s); messages[s.id] = []; emit({ type: 'session.created', properties: { info: s } }); return json(res, 200, s);
   }
   // permissions, OpenCode 1.x style: GET /permission, POST /permission/:id/reply { reply }; plus the deprecated per-session route
-  if (p === '/permission' && req.method === 'GET') return json(res, 200, [...pendingPermissions.values()].map((x) => x.request));
+  if (p === '/permission' && req.method === 'GET') return json(res, 200, [...pendingPermissions.values()].filter((x) => x.asked !== false).map((x) => x.request));
   const pm = /^\/permission\/([^/]+)\/reply$/.exec(p) ?? /^\/session\/[^/]+\/permissions\/([^/]+)$/.exec(p);
   if (pm && req.method === 'POST') {
     const [, requestID] = pm;
-    const b = await readBody(req, res); if (!b) return;
+    const b = await readBody(req, res); if (b === BAD_BODY) return;
     const pending = pendingPermissions.get(requestID);
     if (!pending) return json(res, 404, { error: 'no such permission' });
     const reply = b.reply ?? b.response;
@@ -243,9 +250,10 @@ const server = http.createServer(async (req, res) => {
     if (op === 'message' && req.method === 'GET') return json(res, 200, messages[id]);
     if (op === 'abort') { abortSession(id); return json(res, 200, true); }
     if (op === 'prompt_async' || op === 'message') {
-      const b = await readBody(req, res); if (!b) return;
+      const b = await readBody(req, res); if (b === BAD_BODY) return;
       {
         const text = b.parts?.[0]?.text ?? '';
+        abortSession(id); // one reply at a time per session: a new prompt ends the previous one
         // like opencode: no agent means the default one; the model falls back to the last user message's
         const lastModel = messages[id].findLast((x) => x.info.role === 'user' && x.info.model)?.info.model;
         const um = { id: 'm' + counter++, sessionID: id, role: 'user', time: { created: now() }, agent: b.agent ?? 'build', model: { ...(b.model ?? lastModel ?? { providerID: 'anthropic', modelID: 'claude-sonnet-4' }), ...(b.variant ? { variant: b.variant } : {}) }, ...(b.system ? { system: b.system } : {}), ...(b.tools ? { tools: b.tools } : {}) };
@@ -287,12 +295,14 @@ const server = http.createServer(async (req, res) => {
           // normal prompts ask for permission to run a command first, like opencode's bash tool does
           const requestID = 'per_' + counter++;
           const request = { id: requestID, sessionID: id, permission: 'bash', patterns: ['npm test'], metadata: {}, always: ['npm *'], tool: { messageID: am.id, callID: 'call_' + requestID } };
-          pendingPermissions.set(requestID, {
+          const pending = {
             request,
             am,
+            asked: false,
             resume: (reply) => stream((reply === 'reject' ? `好的，不运行 \`npm test\`。收到：${text}` : `已运行 \`npm test\`（${reply === 'always' ? '已记住，以后不再询问' : '仅这一次'}）。收到：${text}`) + (text.includes('图') ? DIAGRAM : '')),
-          });
-          setTimeout(() => emit({ type: 'permission.asked', properties: request }), 400);
+          };
+          pending.askTimer = setTimeout(() => { pending.asked = true; emit({ type: 'permission.asked', properties: request }); }, 400);
+          pendingPermissions.set(requestID, pending);
         }
         return json(res, 200, op === 'prompt_async' ? {} : { info: am, parts: [] });
       }
@@ -305,7 +315,7 @@ const server = http.createServer(async (req, res) => {
     else res.end();
   }
 });
-server.on('close', () => { for (const x of streaming.values()) clearInterval(x.timer); streaming.clear(); });
+server.on('close', () => { for (const x of streaming.values()) clearInterval(x.timer); streaming.clear(); for (const x of pendingPermissions.values()) clearTimeout(x.askTimer); });
 return server;
 }
 

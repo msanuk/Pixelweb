@@ -194,7 +194,7 @@ export async function analyseProject(root: string, opts: AnalyseOptions = {}): P
 
   // Pass 1: read everything and drop what we will not draw (generated blobs, unreadable files),
   // so that nothing below can resolve an import onto a file that has no node.
-  const sources = new Map<string, string>();
+  const sources = new Map<string, { src: string; lines: number }>();
   for (const file of walked.files) {
     let src: string;
     try {
@@ -203,11 +203,12 @@ export async function analyseProject(root: string, opts: AnalyseOptions = {}): P
       skipped++;
       continue;
     }
-    if (isGenerated(src, src.split('\n').length)) {
+    const lines = src.split('\n').length;
+    if (isGenerated(src, lines)) {
       skipped++;
       continue;
     }
-    sources.set(file, src);
+    sources.set(file, { src, lines });
   }
   const files = [...sources.keys()];
   const fileSet = new Set(files);
@@ -229,8 +230,8 @@ export async function analyseProject(root: string, opts: AnalyseOptions = {}): P
 
   const groupOf = (file: string) => (level === 'file' ? file : dirGroup(file, opts.dirDepth ?? 2));
 
-  for (const [file, src] of sources) {
-    loc.set(file, src.split('\n').length);
+  for (const [file, { src, lines }] of sources) {
+    loc.set(file, lines);
     const lang = languageOf(file);
     const specs = lang === 'py' ? extractPyImports(src) : extractJsImports(src);
     for (const spec of specs) {
@@ -285,7 +286,7 @@ export async function analyseProject(root: string, opts: AnalyseOptions = {}): P
     nodes: [...nodes.values()],
     edges: finalEdges,
     generatedAt: Date.now(),
-    stats: { files: files.length, imports, externals: externals.size, skipped },
+    stats: { files: files.length, imports, externals: keepExt.size, skipped },
   };
 }
 
@@ -306,9 +307,11 @@ export async function loadWorkspaces(root: string, files: Set<string>): Promise<
   }
   const raw = Array.isArray(rootPkg?.workspaces) ? rootPkg.workspaces : Array.isArray(rootPkg?.workspaces?.packages) ? rootPkg.workspaces.packages : [];
   // npm/yarn/pnpm accept globs and "!negations"; we support the common "dir" and "dir/*" shapes and skip the rest safely
-  const strings = raw.filter((p): p is string => typeof p === 'string' && p.trim().length > 0).map((p) => p.trim().replace(/\/+$/, ''));
-  const negated = new Set(strings.filter((p) => p.startsWith('!')).map((p) => p.slice(1).replace(/^\.\//, '')));
-  const patterns = strings.filter((p) => !p.startsWith('!'));
+  // "./pkg/", "pkg" and "!./pkg" must all name the same directory
+  const clean = (p: string) => path.posix.normalize(p.trim()).replace(/\/+$/, '');
+  const strings = raw.filter((p): p is string => typeof p === 'string' && p.trim().length > 0);
+  const negated = new Set(strings.filter((p) => p.startsWith('!')).map((p) => clean(p.slice(1))));
+  const patterns = strings.filter((p) => !p.startsWith('!')).map(clean);
   for (const pattern of patterns) {
     const base = pattern.replace(/\/?\*+$/, '');
     let dirs: string[] = [];

@@ -13,6 +13,14 @@ describe('shallowEqual', () => {
     expect(shallowEqual(null, [])).toBe(false);
     expect(shallowEqual('a', 'a')).toBe(true);
   });
+  it('never calls two different Set, Map or Date instances equal (their keys are not enumerable)', () => {
+    const set = new Set(['a']);
+    expect(shallowEqual(set, set)).toBe(true);
+    expect(shallowEqual(new Set(['a']), new Set(['a']))).toBe(false);
+    expect(shallowEqual(new Map([['a', 1]]), new Map([['a', 1]]))).toBe(false);
+    expect(shallowEqual(new Date(0), new Date(0))).toBe(false);
+    expect(shallowEqual(new Set(), {})).toBe(false);
+  });
 });
 
 describe('memoSelector', () => {
@@ -20,7 +28,7 @@ describe('memoSelector', () => {
   const s1: S = { items: [{ id: 1, sid: 'a' }, { id: 2, sid: 'b' }], sid: 'a' };
 
   it('returns the previous reference while the derived value is shallow-equal', () => {
-    const select = memoSelector((s: S) => s.items.filter((i) => i.sid === s.sid), shallowEqual);
+    const select = memoSelector(() => (s: S) => s.items.filter((i) => i.sid === s.sid), shallowEqual);
     const first = select(s1);
     expect(first).toEqual([{ id: 1, sid: 'a' }]);
     // a new state object with an unrelated change: same filtered items → same reference, so
@@ -31,13 +39,20 @@ describe('memoSelector', () => {
   });
 
   it('returns a fresh value when the derived value actually changes', () => {
-    const select = memoSelector((s: S) => s.items.filter((i) => i.sid === s.sid), shallowEqual);
+    const select = memoSelector(() => (s: S) => s.items.filter((i) => i.sid === s.sid), shallowEqual);
     const first = select(s1);
     const second = select({ ...s1, sid: 'b' });
     expect(second).not.toBe(first);
     expect(second).toEqual([{ id: 2, sid: 'b' }]);
     const third = select({ ...s1, sid: 'b' });
     expect(third).toBe(second);
+  });
+
+  it('works for selectors that ignore their argument', () => {
+    const select = memoSelector(() => () => [1, 2], shallowEqual);
+    const first = select(s1);
+    expect(first).toEqual([1, 2]);
+    expect(select(s1)).toBe(first);
   });
 
   it('uses the latest selector when one is supplied through a getter', () => {

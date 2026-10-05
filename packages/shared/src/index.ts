@@ -225,6 +225,7 @@ export interface ArchGraph {
   nodes: ArchNode[];
   edges: ArchEdge[];
   generatedAt: number;
+  /** files: nodes drawn; imports: dependencies drawn (sum of edge weights); externals: external packages drawn; skipped: generated, unreadable or over-limit files */
   stats: { files: number; imports: number; externals: number; skipped: number };
 }
 
