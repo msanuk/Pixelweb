@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from 'react';
+import { useRef, useSyncExternalStore } from 'react';
 import type {
   ArchGraph,
   CommitLink,
@@ -15,6 +15,9 @@ import type {
   OcTodo,
 } from '@pixelweb/shared';
 import { api } from './api';
+import { memoSelector, type Selector } from './select';
+
+export { shallowEqual } from './select';
 import { appendDelta } from './delta';
 import { displayTitle } from './format';
 import { normalizePermission, repliedPermissionID } from './permissions';
@@ -112,15 +115,26 @@ export function setState(patch: Partial<State> | ((s: State) => Partial<State>))
   for (const l of listeners) l();
 }
 
-export function useStore<T>(selector: (s: State) => T): T {
-  return useSyncExternalStore(
-    (l) => {
-      listeners.add(l);
-      return () => listeners.delete(l);
-    },
-    () => selector(state),
-    () => selector(state),
-  );
+const subscribe = (l: () => void) => {
+  listeners.add(l);
+  return () => listeners.delete(l);
+};
+
+/**
+ * Select a slice of the store.
+ *
+ * Snapshots are compared with Object.is, so a selector that builds a new array/object per call
+ * (`s.items.filter(...)`) MUST pass an `isEqual` (usually `shallowEqual`): the hook then keeps the
+ * previous reference while the derived value is unchanged, instead of re-rendering forever.
+ */
+export function useStore<T>(selector: Selector<State, T>, isEqual?: (a: T, b: T) => boolean): T {
+  // always call the latest inline selector, but keep one memo per hook instance
+  const selectorRef = useRef(selector);
+  selectorRef.current = selector;
+  const memoRef = useRef<Selector<State, T> | null>(null);
+  if (isEqual && !memoRef.current) memoRef.current = memoSelector(() => selectorRef.current, isEqual);
+  const get = isEqual ? () => memoRef.current!(state) : () => selectorRef.current(state);
+  return useSyncExternalStore(subscribe, get, get);
 }
 
 // ---- actions -----------------------------------------------------------------

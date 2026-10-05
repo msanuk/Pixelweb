@@ -57,22 +57,31 @@ export function extractPyImports(source: string): string[] {
 
 // ---- Resolution --------------------------------------------------------------
 
-/** name → entry file (repo-relative) for workspace packages, e.g. "@pixelweb/shared" → "packages/shared/src/index.ts" */
-export type WorkspaceMap = Map<string, string>;
+export interface WorkspaceEntry {
+  /** package directory, repo-relative, e.g. "packages/shared" */
+  dir: string;
+  /** source entry file, repo-relative, e.g. "packages/shared/src/index.ts" */
+  entry: string;
+}
+/** package name → where it lives, for workspace (monorepo) packages */
+export type WorkspaceMap = Map<string, WorkspaceEntry>;
+
+/** "@scope/pkg/sub/path" → "@scope/pkg"; "pkg/sub" → "pkg". Bare specifiers only. */
+function packageNameOf(spec: string): string {
+  const parts = spec.split('/');
+  return spec.startsWith('@') ? parts.slice(0, 2).join('/') : parts[0];
+}
 
 export function resolveJs(fromFile: string, spec: string, files: Set<string>, workspaces?: WorkspaceMap): string | null {
   if (!spec.startsWith('.') && !spec.startsWith('/')) {
-    // workspace package (monorepo) → its entry file
-    if (workspaces) {
-      const hit = [...workspaces.keys()].find((name) => spec === name || spec.startsWith(name + '/'));
-      if (hit) {
-        if (spec === hit) return files.has(workspaces.get(hit)!) ? workspaces.get(hit)! : null;
-        const sub = spec.slice(hit.length + 1);
-        const pkgDir = workspaces.get(hit)!.split('/').slice(0, 2).join('/');
-        return resolveJs(pkgDir + '/package.json', './' + sub, files) ?? resolveJs(pkgDir + '/package.json', './src/' + sub, files);
-      }
-    }
-    return null; // bare → external
+    // workspace package (monorepo) → its entry file. O(1): look the package name up directly.
+    const name = packageNameOf(spec);
+    const ws = workspaces?.get(name);
+    if (!ws) return null; // bare → external
+    if (spec === name) return files.has(ws.entry) ? ws.entry : null;
+    const sub = spec.slice(name.length + 1);
+    const fromPkg = ws.dir + '/package.json';
+    return resolveJs(fromPkg, './' + sub, files) ?? resolveJs(fromPkg, './src/' + sub, files);
   }
   const clean = spec.replace(/\?.*$/, '');
   const base = path.posix.normalize(path.posix.join(path.posix.dirname(fromFile), clean));
@@ -180,14 +189,35 @@ export interface AnalyseOptions {
 
 export async function analyseProject(root: string, opts: AnalyseOptions = {}): Promise<ArchGraph> {
   const level = opts.level ?? 'dir';
-  const { files, skipped } = await walk(root, opts.maxFiles ?? 4000);
+  const walked = await walk(root, opts.maxFiles ?? 4000);
+  let skipped = walked.skipped;
+
+  // Pass 1: read everything and drop what we will not draw (generated blobs, unreadable files),
+  // so that nothing below can resolve an import onto a file that has no node.
+  const sources = new Map<string, string>();
+  for (const file of walked.files) {
+    let src: string;
+    try {
+      src = await fs.readFile(path.join(root, file), 'utf8');
+    } catch {
+      skipped++;
+      continue;
+    }
+    if (isGenerated(src, src.split('\n').length)) {
+      skipped++;
+      continue;
+    }
+    sources.set(file, src);
+  }
+  const files = [...sources.keys()];
   const fileSet = new Set(files);
+  const workspaces = await loadWorkspaces(root, fileSet);
+
+  // Pass 2: edges
   const loc = new Map<string, number>();
   const edges = new Map<string, ArchEdge>();
   const externals = new Map<string, number>();
-  let imports = 0;
-  let skippedGenerated = 0;
-  const workspaces = await loadWorkspaces(root, fileSet);
+  let imports = 0; // dependencies actually drawn (internal edges + external packages)
 
   const addEdge = (s: string, t: string) => {
     if (s === t) return;
@@ -199,27 +229,19 @@ export async function analyseProject(root: string, opts: AnalyseOptions = {}): P
 
   const groupOf = (file: string) => (level === 'file' ? file : dirGroup(file, opts.dirDepth ?? 2));
 
-  for (const file of files) {
-    let src: string;
-    try {
-      src = await fs.readFile(path.join(root, file), 'utf8');
-    } catch {
-      continue;
-    }
-    const lineCount = src.split('\n').length;
-    if (isGenerated(src, lineCount)) {
-      skippedGenerated++;
-      continue;
-    }
-    loc.set(file, lineCount);
+  for (const [file, src] of sources) {
+    loc.set(file, src.split('\n').length);
     const lang = languageOf(file);
     const specs = lang === 'py' ? extractPyImports(src) : extractJsImports(src);
     for (const spec of specs) {
-      imports++;
       const target = lang === 'py' ? resolvePy(file, spec, fileSet) : resolveJs(file, spec, fileSet, workspaces);
-      if (target) addEdge(groupOf(file), groupOf(target));
-      else if (spec.startsWith('.') || spec.startsWith('/')) continue; // unresolved relative (css, json, images…) → not a dependency edge
-      else {
+      if (target) {
+        imports++;
+        addEdge(groupOf(file), groupOf(target));
+      } else if (spec.startsWith('.') || spec.startsWith('/')) {
+        continue; // unresolved relative (css, json, images, skipped bundles…) → not a dependency edge
+      } else {
+        imports++;
         const name = externalName(spec, lang);
         externals.set(name, (externals.get(name) ?? 0) + 1);
         addEdge(groupOf(file), 'ext:' + name);
@@ -230,7 +252,6 @@ export async function analyseProject(root: string, opts: AnalyseOptions = {}): P
   // nodes
   const nodes = new Map<string, ArchNode>();
   for (const file of files) {
-    if (!loc.has(file)) continue; // skipped as generated
     const id = groupOf(file);
     const n = nodes.get(id);
     if (n) {
@@ -247,14 +268,15 @@ export async function analyseProject(root: string, opts: AnalyseOptions = {}): P
       });
     }
   }
-  const keepExt = new Set(
-    [...externals.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, opts.maxExternals ?? 12)
-      .map(([n]) => n),
-  );
-  for (const name of keepExt) nodes.set('ext:' + name, { id: 'ext:' + name, label: name, kind: 'external', loc: 0 });
+  // keep the N most-referenced externals; the rest are not drawn, so they are not counted either
+  const ranked = [...externals.entries()].sort((a, b) => b[1] - a[1]);
+  const keepExt = new Set(ranked.slice(0, opts.maxExternals ?? 12).map(([n]) => n));
+  for (const [name, count] of ranked) {
+    if (keepExt.has(name)) nodes.set('ext:' + name, { id: 'ext:' + name, label: name, kind: 'external', loc: 0 });
+    else imports -= count;
+  }
 
+  // self-edges were never recorded; every remaining edge now has both endpoints
   const finalEdges = [...edges.values()].filter((e) => nodes.has(e.source) && nodes.has(e.target));
 
   return {
@@ -263,7 +285,7 @@ export async function analyseProject(root: string, opts: AnalyseOptions = {}): P
     nodes: [...nodes.values()],
     edges: finalEdges,
     generatedAt: Date.now(),
-    stats: { files: files.length - skippedGenerated, imports, externals: externals.size, skipped: skipped + skippedGenerated },
+    stats: { files: files.length, imports, externals: externals.size, skipped },
   };
 }
 
@@ -276,13 +298,17 @@ export function isGenerated(src: string, lineCount: number): boolean {
 /** Reads package.json of every workspace package and maps its name to a source entry file. */
 export async function loadWorkspaces(root: string, files: Set<string>): Promise<WorkspaceMap> {
   const map: WorkspaceMap = new Map();
-  let rootPkg: { workspaces?: string[] | { packages?: string[] } } | null = null;
+  let rootPkg: { workspaces?: unknown[] | { packages?: unknown[] } } | null = null;
   try {
     rootPkg = JSON.parse(await fs.readFile(path.join(root, 'package.json'), 'utf8'));
   } catch {
     return map;
   }
-  const patterns = Array.isArray(rootPkg?.workspaces) ? rootPkg.workspaces : rootPkg?.workspaces?.packages ?? [];
+  const raw = Array.isArray(rootPkg?.workspaces) ? rootPkg.workspaces : Array.isArray(rootPkg?.workspaces?.packages) ? rootPkg.workspaces.packages : [];
+  // npm/yarn/pnpm accept globs and "!negations"; we support the common "dir" and "dir/*" shapes and skip the rest safely
+  const strings = raw.filter((p): p is string => typeof p === 'string' && p.trim().length > 0).map((p) => p.trim().replace(/\/+$/, ''));
+  const negated = new Set(strings.filter((p) => p.startsWith('!')).map((p) => p.slice(1).replace(/^\.\//, '')));
+  const patterns = strings.filter((p) => !p.startsWith('!'));
   for (const pattern of patterns) {
     const base = pattern.replace(/\/?\*+$/, '');
     let dirs: string[] = [];
@@ -294,6 +320,7 @@ export async function loadWorkspaces(root: string, files: Set<string>): Promise<
       continue;
     }
     for (const dir of dirs) {
+      if (negated.has(dir)) continue;
       try {
         const pkg = JSON.parse(await fs.readFile(path.join(root, dir, 'package.json'), 'utf8')) as {
           name?: string;
@@ -313,7 +340,7 @@ export async function loadWorkspaces(root: string, files: Set<string>): Promise<
           const rel = path.posix.normalize(path.posix.join(dir, c));
           const resolved = files.has(rel) ? rel : resolveJs(dir + '/package.json', './' + path.posix.relative(dir, rel), files);
           if (resolved) {
-            map.set(pkg.name, resolved);
+            map.set(pkg.name, { dir, entry: resolved });
             break;
           }
         }

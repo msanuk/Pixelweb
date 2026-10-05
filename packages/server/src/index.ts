@@ -3,7 +3,6 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import Fastify from 'fastify';
-import fastifyStatic from '@fastify/static';
 import websocket from '@fastify/websocket';
 import os from 'node:os';
 import type { ClientMessage, CommitLink, ExplainRequest, ExplainResponse, ModelInfo, OcPart, OcSession, OpencodeConnection, PermissionResponse, ProjectOption, ServerInfo, ServerMessage } from '@pixelweb/shared';
@@ -14,6 +13,7 @@ import { toModelInfo } from './opencode/models.js';
 import { followUpSettings } from './opencode/followup.js';
 import { TITLE_MAX, applyConvention, conventionalTitle } from './opencode/naming.js';
 import { Hub } from './ws.js';
+import { registerUi } from './ui.js';
 import { registerAuth } from './auth.js';
 import { GitService } from './git/service.js';
 import { CommitIndex, resolveLinks } from './activity/commits.js';
@@ -189,15 +189,7 @@ async function main(): Promise<void> {
   registerAuth(app, cfg.password, extTokens);
   await app.register(websocket);
 
-  const publicDir = path.join(PKG_ROOT, 'public');
-  const hasUi = fs.existsSync(path.join(publicDir, 'index.html'));
-  if (hasUi) {
-    await app.register(fastifyStatic, { root: publicDir, prefix: '/' }); // wildcard: files resolved per request, so a rebuild needs no restart
-    app.setNotFoundHandler((req, reply) => {
-      if (req.raw.url?.startsWith('/api') || req.raw.url?.startsWith('/ws')) return reply.code(404).send({ error: 'not found' });
-      return reply.sendFile('index.html');
-    });
-  }
+  await registerUi(app, path.join(PKG_ROOT, 'public'));
 
   app.get('/ws', { websocket: true }, (socket) => {
     hub.add(socket, (raw) => {
@@ -466,7 +458,7 @@ async function main(): Promise<void> {
 
   // ---- start -------------------------------------------------------------------
   await app.listen({ port: cfg.port, host: cfg.host });
-  console.log(`[pixelweb] v${VERSION} listening on http://${cfg.host}:${cfg.port}${hasUi ? '' : '  (UI not built; run `npm run dev:web` or `npm run build`)'}`);
+  console.log(`[pixelweb] v${VERSION} listening on http://${cfg.host}:${cfg.port}${fs.existsSync(path.join(PKG_ROOT, 'public', 'index.html')) ? '' : '  (UI not built yet; run `npm run build` — no restart needed)'}`);
   console.log(`[pixelweb] project: ${cfg.projectRoot}`);
   const loopback = ['127.0.0.1', 'localhost', '::1'].includes(cfg.host);
   if (cfg.password) console.log('[pixelweb] login required (--password)');

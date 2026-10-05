@@ -1,8 +1,8 @@
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
-import { describe, expect, it } from 'vitest';
-import { analyseProject, gitIgnored, dirGroup, extractJsImports, extractPyImports, externalName, isGenerated, resolveJs, resolvePy } from '../src/analysis/deps.js';
+import { afterEach, describe, expect, it } from 'vitest';
+import { analyseProject, gitIgnored, dirGroup, extractJsImports, extractPyImports, externalName, isGenerated, loadWorkspaces, resolveJs, resolvePy } from '../src/analysis/deps.js';
 import path from 'node:path';
 
 describe('extractJsImports', () => {
@@ -55,11 +55,24 @@ describe('resolvePy', () => {
 
 describe('resolveJs with workspaces', () => {
   const files = new Set(['packages/shared/src/index.ts', 'packages/shared/src/util.ts', 'packages/server/src/index.ts']);
-  const ws = new Map([['@acme/shared', 'packages/shared/src/index.ts']]);
+  const ws = new Map([['@acme/shared', { dir: 'packages/shared', entry: 'packages/shared/src/index.ts' }]]);
   it('maps workspace package names to their entry and subpaths', () => {
     expect(resolveJs('packages/server/src/index.ts', '@acme/shared', files, ws)).toBe('packages/shared/src/index.ts');
     expect(resolveJs('packages/server/src/index.ts', '@acme/shared/util', files, ws)).toBe('packages/shared/src/util.ts');
+    expect(resolveJs('packages/server/src/index.ts', '@acme/shared/src/util', files, ws)).toBe('packages/shared/src/util.ts');
     expect(resolveJs('packages/server/src/index.ts', '@acme/other', files, ws)).toBeNull();
+    expect(resolveJs('packages/server/src/index.ts', '@acme/shared-extras', files, ws)).toBeNull();
+  });
+  it('does not assume a packages/<name> layout', () => {
+    const flat = new Set(['shared/src/index.ts', 'shared/src/util.ts', 'apps/web/libs/ui/src/index.ts', 'apps/web/libs/ui/src/button.tsx']);
+    const flatWs = new Map([
+      ['@acme/shared', { dir: 'shared', entry: 'shared/src/index.ts' }],
+      ['@acme/ui', { dir: 'apps/web/libs/ui', entry: 'apps/web/libs/ui/src/index.ts' }],
+    ]);
+    expect(resolveJs('server/src/index.ts', '@acme/shared/src/util', flat, flatWs)).toBe('shared/src/util.ts');
+    expect(resolveJs('server/src/index.ts', '@acme/shared/util', flat, flatWs)).toBe('shared/src/util.ts');
+    expect(resolveJs('server/src/index.ts', '@acme/ui/button', flat, flatWs)).toBe('apps/web/libs/ui/src/button.tsx');
+    expect(resolveJs('server/src/index.ts', 'lodash/fp', flat, flatWs)).toBeNull();
   });
 });
 
@@ -71,15 +84,82 @@ describe('isGenerated', () => {
   });
 });
 
-describe('analyseProject on this repo', () => {
+const tmpDirs: string[] = [];
+afterEach(() => {
+  for (const d of tmpDirs.splice(0)) fs.rmSync(d, { recursive: true, force: true });
+});
+
+/** Writes a small monorepo fixture and returns its root. */
+function fixture(files: Record<string, string>): string {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pw-deps-'));
+  tmpDirs.push(root);
+  for (const [rel, content] of Object.entries(files)) {
+    fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+    fs.writeFileSync(path.join(root, rel), content);
+  }
+  return root;
+}
+
+const MINIFIED = 'var a=' + '1'.repeat(30_000) + ';\n';
+
+describe('analyseProject on a monorepo fixture', () => {
+  const monorepo = () =>
+    fixture({
+      'package.json': JSON.stringify({ workspaces: ['packages/*/', '!packages/legacy', null] }),
+      'packages/shared/package.json': JSON.stringify({ name: '@acme/shared', types: 'src/index.ts' }),
+      'packages/shared/src/index.ts': 'export const x = 1;\n',
+      'packages/shared/src/util.ts': 'export const u = 2;\n',
+      'packages/server/package.json': JSON.stringify({ name: '@acme/server' }),
+      'packages/server/src/index.ts': [
+        "import { x } from '@acme/shared';",
+        "import { u } from '@acme/shared/util';",
+        "import Fastify from 'fastify';",
+        "import './styles.css';",
+        "import './generated/big.min.js';",
+        "import { missing } from './nope';",
+      ].join('\n'),
+      'packages/server/src/generated/big.min.js': MINIFIED,
+      'packages/legacy/package.json': JSON.stringify({ name: '@acme/legacy' }),
+      'packages/legacy/src/index.ts': "import { x } from '@acme/shared';\n",
+    });
+
   it('links workspace packages, ignores asset imports and generated bundles', async () => {
-    const g = await analyseProject(path.resolve(__dirname, '../../..'), { level: 'file' });
+    const g = await analyseProject(monorepo(), { level: 'file' });
     const ids = new Set(g.nodes.map((n) => n.id));
-    expect(ids.has('ext:@pixelweb/shared')).toBe(false);
+    expect(ids.has('ext:@acme/shared')).toBe(false);
     expect(ids.has('ext:.')).toBe(false);
-    expect(ids.has('ext:..')).toBe(false);
-    expect([...ids].some((id) => id.includes('/public/'))).toBe(false);
-    expect(g.edges.some((e) => e.source === 'packages/server/src/index.ts' && e.target === 'packages/shared/src/index.ts')).toBe(true);
+    expect(ids.has('ext:fastify')).toBe(true);
+    expect([...ids].some((id) => id.endsWith('big.min.js'))).toBe(false);
+    const edge = (s: string, t: string) => g.edges.find((e) => e.source === s && e.target === t);
+    expect(edge('packages/server/src/index.ts', 'packages/shared/src/index.ts')?.weight).toBe(1);
+    expect(edge('packages/server/src/index.ts', 'packages/shared/src/util.ts')?.weight).toBe(1);
+    expect(edge('packages/server/src/index.ts', 'ext:fastify')?.weight).toBe(1);
+  });
+
+  it('tolerates odd workspaces entries and still maps packages', async () => {
+    const ws = await loadWorkspaces(monorepo(), new Set(['packages/shared/src/index.ts', 'packages/legacy/src/index.ts']));
+    expect(ws.get('@acme/shared')).toEqual({ dir: 'packages/shared', entry: 'packages/shared/src/index.ts' });
+    expect(ws.has('@acme/legacy')).toBe(false); // negated pattern
+  });
+
+  it('keeps stats consistent with the graph: no edge targets a missing node, imports counts only drawn edges', async () => {
+    const g = await analyseProject(monorepo(), { level: 'file' });
+    const ids = new Set(g.nodes.map((n) => n.id));
+    for (const e of g.edges) {
+      expect(ids.has(e.source)).toBe(true);
+      expect(ids.has(e.target)).toBe(true);
+    }
+    // shared/index, shared/util, server/index, legacy/index — the minified bundle is skipped
+    expect(g.stats.files).toBe(4);
+    expect(g.stats.skipped).toBe(1);
+    // @acme/shared ×2 (server + legacy), @acme/shared/util, fastify → 4; css / minified / unresolved are not dependencies
+    expect(g.stats.imports).toBe(4);
+    expect(g.stats.imports).toBe(g.edges.reduce((n, e) => n + e.weight, 0));
+  });
+
+  it('does not throw on a workspaces field that is not a list of strings', async () => {
+    const root = fixture({ 'package.json': JSON.stringify({ workspaces: { packages: [42, 'packages/*'] } }), 'packages/a/package.json': '{"name":"a"}', 'packages/a/index.ts': '' });
+    await expect(loadWorkspaces(root, new Set(['packages/a/index.ts']))).resolves.toEqual(new Map([['a', { dir: 'packages/a', entry: 'packages/a/index.ts' }]]));
   });
 });
 

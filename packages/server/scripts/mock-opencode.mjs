@@ -3,9 +3,11 @@
 import http from 'node:http';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-const PORT = Number(process.env.PORT ?? 4096);
-const dir = process.env.DIR ?? process.cwd();
+import { fileURLToPath } from 'node:url';
 const now = () => Date.now();
+
+/** Builds the mock server. `listen()` it yourself; tests use port 0. */
+export function createMockServer({ dir = process.env.DIR ?? process.cwd() } = {}) {
 const extraProjects = (process.env.PROJECTS ?? '').split(path.delimiter).filter(Boolean).map((p) => path.resolve(p));
 // like opencode, `?directory=` scopes a request to one project; the sample sessions all live in `dir`
 const nested = (a, b) => a === b || a.startsWith(b + path.sep);
@@ -159,8 +161,33 @@ const pendingPermissions = new Map(); // requestID -> { request, resume(reply) }
     },
   });
 }
-const readBody = (req) => new Promise((r) => { let b = ''; req.on('data', (c) => (b += c)); req.on('end', () => r(JSON.parse(b || '{}'))); });
-http.createServer((req, res) => {
+/** Reads and parses a JSON body; answers 400 and resolves null when it is malformed. */
+const readBody = (req, res) => new Promise((r) => {
+  let b = ''; req.on('data', (c) => (b += c));
+  req.on('end', () => { try { r(JSON.parse(b || '{}')); } catch { json(res, 400, { error: 'invalid JSON body' }); r(null); } });
+});
+/** sessionID → the reply currently streaming, so /abort can stop it */
+const streaming = new Map();
+const finishReply = (id, am) => {
+  streaming.delete(id);
+  am.time.completed = now(); am.tokens.output = 50;
+  emit({ type: 'message.updated', properties: { info: am } });
+  emit({ type: 'session.status', properties: { sessionID: id, status: { type: 'idle' } } });
+  emit({ type: 'session.idle', properties: { sessionID: id } });
+};
+const abortSession = (id) => {
+  const cur = streaming.get(id);
+  if (cur) { clearInterval(cur.timer); emit({ type: 'message.part.updated', properties: { part: { ...cur.tp } } }); finishReply(id, cur.am); }
+  // a prompt still waiting on a permission is cancelled too
+  for (const [requestID, pending] of pendingPermissions) {
+    if (pending.request.sessionID !== id || !pending.am) continue;
+    pendingPermissions.delete(requestID);
+    emit({ type: 'permission.replied', properties: { sessionID: id, requestID, reply: 'reject' } });
+    finishReply(id, pending.am);
+  }
+};
+const server = http.createServer(async (req, res) => {
+  try {
   const u = new URL(req.url, 'http://x');
   const p = u.pathname;
   if (p === '/global/event' || p === '/event') {
@@ -182,44 +209,43 @@ http.createServer((req, res) => {
     if (!s) return json(res, 404, { error: 'no such session' });
     if (req.method === 'GET') return json(res, 200, s);
     if (req.method === 'PATCH') {
-      readBody(req).then((b) => {
-        if (typeof b.title === 'string') s.title = b.title;
-        s.time.updated = now();
-        emit({ type: 'session.updated', properties: { sessionID: s.id, info: s } });
-        json(res, 200, s);
-      });
-      return;
+      const b = await readBody(req, res); if (!b) return;
+      if (typeof b.title === 'string') s.title = b.title;
+      s.time.updated = now();
+      emit({ type: 'session.updated', properties: { sessionID: s.id, info: s } });
+      return json(res, 200, s);
     }
   }
   if (p === '/session' && req.method === 'POST') {
-    let body = ''; req.on('data', (c) => (body += c)); req.on('end', () => {
-      const b = JSON.parse(body || '{}'); const s = { id: 'ses_' + counter++, projectID: 'p', directory: dir, title: b.title ?? `New session - ${new Date().toISOString()}`, version: '1', time: { created: now(), updated: now() } };
-      sessions.unshift(s); messages[s.id] = []; emit({ type: 'session.created', properties: { info: s } }); json(res, 200, s); }); return;
+    const b = await readBody(req, res); if (!b) return;
+    const s = { id: 'ses_' + counter++, projectID: 'p', directory: dir, title: b.title ?? `New session - ${new Date().toISOString()}`, version: '1', time: { created: now(), updated: now() } };
+    if (b.parentID) s.parentID = b.parentID;
+    sessions.unshift(s); messages[s.id] = []; emit({ type: 'session.created', properties: { info: s } }); return json(res, 200, s);
   }
   // permissions, OpenCode 1.x style: GET /permission, POST /permission/:id/reply { reply }; plus the deprecated per-session route
   if (p === '/permission' && req.method === 'GET') return json(res, 200, [...pendingPermissions.values()].map((x) => x.request));
   const pm = /^\/permission\/([^/]+)\/reply$/.exec(p) ?? /^\/session\/[^/]+\/permissions\/([^/]+)$/.exec(p);
   if (pm && req.method === 'POST') {
     const [, requestID] = pm;
-    readBody(req).then((b) => {
-      const pending = pendingPermissions.get(requestID);
-      if (!pending) return json(res, 404, { error: 'no such permission' });
-      const reply = b.reply ?? b.response;
-      pendingPermissions.delete(requestID);
-      emit({ type: 'permission.replied', properties: { sessionID: pending.request.sessionID, requestID, reply } });
-      pending.resume(reply);
-      json(res, 200, true);
-    });
-    return;
+    const b = await readBody(req, res); if (!b) return;
+    const pending = pendingPermissions.get(requestID);
+    if (!pending) return json(res, 404, { error: 'no such permission' });
+    const reply = b.reply ?? b.response;
+    pendingPermissions.delete(requestID);
+    emit({ type: 'permission.replied', properties: { sessionID: pending.request.sessionID, requestID, reply } });
+    pending.resume(reply);
+    return json(res, 200, true);
   }
   const m = /^\/session\/([^/]+)\/(message|prompt_async|abort)$/.exec(p);
   if (m) {
     const [, id, op] = m;
-    if (op === 'message' && req.method === 'GET') return json(res, 200, messages[id] ?? []);
-    if (op === 'abort') return json(res, 200, true);
+    if (!messages[id]) return json(res, 404, { error: `session ${id} not found` });
+    if (op === 'message' && req.method === 'GET') return json(res, 200, messages[id]);
+    if (op === 'abort') { abortSession(id); return json(res, 200, true); }
     if (op === 'prompt_async' || op === 'message') {
-      let body = ''; req.on('data', (c) => (body += c)); req.on('end', () => {
-        const b = JSON.parse(body || '{}'); const text = b.parts?.[0]?.text ?? '';
+      const b = await readBody(req, res); if (!b) return;
+      {
+        const text = b.parts?.[0]?.text ?? '';
         // like opencode: no agent means the default one; the model falls back to the last user message's
         const lastModel = messages[id].findLast((x) => x.info.role === 'user' && x.info.model)?.info.model;
         const um = { id: 'm' + counter++, sessionID: id, role: 'user', time: { created: now() }, agent: b.agent ?? 'build', model: { ...(b.model ?? lastModel ?? { providerID: 'anthropic', modelID: 'claude-sonnet-4' }), ...(b.variant ? { variant: b.variant } : {}) }, ...(b.system ? { system: b.system } : {}), ...(b.tools ? { tools: b.tools } : {}) };
@@ -248,8 +274,9 @@ http.createServer((req, res) => {
         let i = 0; const iv = setInterval(() => {
           const delta = reply.slice(i, i + 8); i += 8; tp.text += delta;
           emit({ type: 'message.part.delta', properties: { sessionID: id, messageID: am.id, partID: tp.id, field: 'text', delta } });
-          if (i >= reply.length) { clearInterval(iv); emit({ type: 'message.part.updated', properties: { part: { ...tp } } }); am.time.completed = now(); am.tokens.output = 50; emit({ type: 'message.updated', properties: { info: am } }); emit({ type: 'session.status', properties: { sessionID: id, status: { type: 'idle' } } }); emit({ type: 'session.idle', properties: { sessionID: id } }); }
+          if (i >= reply.length) { clearInterval(iv); emit({ type: 'message.part.updated', properties: { part: { ...tp } } }); finishReply(id, am); }
         }, 60);
+        streaming.set(id, { timer: iv, am, tp });
         };
         if (b.system?.includes('云控制台')) {
           // a cloud guide session (docs/cloud-guide.md): cites the captured fields as ⟦fN⟧
@@ -262,13 +289,27 @@ http.createServer((req, res) => {
           const request = { id: requestID, sessionID: id, permission: 'bash', patterns: ['npm test'], metadata: {}, always: ['npm *'], tool: { messageID: am.id, callID: 'call_' + requestID } };
           pendingPermissions.set(requestID, {
             request,
+            am,
             resume: (reply) => stream((reply === 'reject' ? `好的，不运行 \`npm test\`。收到：${text}` : `已运行 \`npm test\`（${reply === 'always' ? '已记住，以后不再询问' : '仅这一次'}）。收到：${text}`) + (text.includes('图') ? DIAGRAM : '')),
           });
           setTimeout(() => emit({ type: 'permission.asked', properties: request }), 400);
         }
-        json(res, 200, op === 'prompt_async' ? {} : { info: am, parts: [] });
-      }); return;
+        return json(res, 200, op === 'prompt_async' ? {} : { info: am, parts: [] });
+      }
     }
   }
   json(res, 404, { error: 'not found ' + p });
-}).listen(PORT, '127.0.0.1', () => console.log('mock opencode on', PORT));
+  } catch (e) {
+    // never let one bad request take the mock down
+    if (!res.headersSent) json(res, 500, { error: String(e?.message ?? e) });
+    else res.end();
+  }
+});
+server.on('close', () => { for (const x of streaming.values()) clearInterval(x.timer); streaming.clear(); });
+return server;
+}
+
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  const PORT = Number(process.env.PORT ?? 4096);
+  createMockServer().listen(PORT, '127.0.0.1', () => console.log('mock opencode on', PORT));
+}

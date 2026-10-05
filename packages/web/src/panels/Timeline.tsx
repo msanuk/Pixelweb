@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { OcMessageWithParts, OcPart, OcPermission, PermissionResponse } from '@pixelweb/shared';
 import { api } from '../lib/api';
-import { explain, getState, loadMessages, openCard, selectSession, setState, showCommit, showInArch, toast, useStore } from '../lib/store';
+import { explain, getState, loadMessages, openCard, selectSession, setState, shallowEqual, showCommit, showInArch, toast, useStore } from '../lib/store';
 import { subagentTitle } from '../lib/sessions';
 import { displayTitle, fmtDuration, fmtNum, fmtTime } from '../lib/format';
 import { Markdown } from '../components/Markdown';
@@ -25,9 +25,7 @@ export function Timeline() {
   const loading = useStore((s) => (sessionID ? s.loadingMessages[sessionID] : false));
   const status = useStore((s) => (sessionID ? s.status[sessionID] : undefined));
   const todos = useStore((s) => (sessionID ? s.todos[sessionID] : undefined));
-  const allPermissions = useStore((s) => s.permissions);
-  // selectors must return stable references (useSyncExternalStore); derive filtered lists with useMemo
-  const permissions = useMemo(() => allPermissions.filter((p) => p.sessionID === sessionID), [allPermissions, sessionID]);
+  const permissions = useStore((s) => s.permissions.filter((p) => p.sessionID === sessionID), shallowEqual);
   const isTeaching = useStore((s) => (sessionID ? s.teachingSessions.has(sessionID) : false));
   const bottomRef = useRef<HTMLDivElement>(null);
   const [follow, setFollow] = useState(true);
