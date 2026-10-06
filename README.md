@@ -1,170 +1,129 @@
+<div align="center">
+
 # PixelWeb
 
-**一个坐在 coding agent 之上、边干活边学的可视化工作台。**
+OpenCode 的可视化面板，用来看懂 agent 在你的项目里做了什么。
 
-PixelWeb 本身不是 agent。它连接并监听 [OpenCode](https://opencode.ai) 的 `opencode serve`，把 agent 正在做的事变成可视、可点、可学的结构：
+[快速开始](#快速开始) · [配置](#配置) · [部署](docs/deployment.md) · [浏览器插件](packages/extension/README.md) · [知识卡片](knowledge/README.md)
 
-| 面板 | 你能看到 | 你能学到 |
+<img src="docs/screenshots/timeline-card.png" alt="时间线和知识卡片" width="860">
+
+</div>
+
+## 简介
+
+PixelWeb 连接 [OpenCode](https://opencode.ai) 的 `opencode serve`，订阅它的事件流，把会话、Git 历史和模块依赖画成图。界面上出现的术语，比如 tool call、context window、rebase、CORS，点一下就能看到对应的中文知识卡片。
+
+模型调用和工具执行都在 OpenCode 里完成。PixelWeb 负责展示，也可以在界面里继续对话、批准权限请求。
+
+## 功能
+
+- 时间线显示每个会话的消息、工具调用、token 用量和费用、上下文占用、prompt 缓存命中率、权限请求和 todo。
+- Git 分支图显示 HEAD、远程分支、工作区状态和 stash，文件变化后自动刷新。agent 提交的 commit 会关联到产生它的会话。
+- 架构图根据 import 语句生成模块依赖（TS / JS / Python），标出循环依赖，并高亮当前会话读过和改过的文件。
+- 用量页按模型、按天统计 token 和缓存命中率。
+- 知识库有 70 多张中文卡片，分 AI、Git、Web、工具链、架构、云几类。每张卡片有定义、使用场景、练习题和参考链接。
+- 在卡片上可以让 OpenCode 结合当前项目再讲一遍。讲解会话不能改文件，执行 shell 命令前都会询问。
+- 同一个 `opencode serve` 下的多个项目可以在顶栏切换。
+- 配套的 Chrome 插件可以把阿里云、AWS 等控制台的配置页发给 PixelWeb，由 agent 结合项目代码说明每一项该怎么填，见 [packages/extension](packages/extension/README.md)。
+
+| Git | 架构 | 知识库 |
 | --- | --- | --- |
-| **时间线** | 每个 session 的消息、工具调用（bash / read / edit / grep …）、token 与费用、权限请求、todo | 点任何工具名、模型名、`step` 都会弹出对应概念卡片 |
-| **Git** | 分支 DAG、HEAD、远程分支、工作区状态、stash，随 agent 改动实时刷新 | 点 commit / branch / HEAD / 状态码即可查看解释 |
-| **架构** | 由 import 语句生成的模块依赖图（TS/JS/Python），节点大小 = 代码行，红边 = 循环依赖 | 点节点看耦合，一键让 OpenCode 解释某个模块的职责 |
-| **知识库** | 50+ 张中文知识卡片：AI（token、context window、tool call、MCP…）、Git、Web（webhook、SSE、CORS…）、工具链、架构 | 每张卡片带一句话定义、为什么重要、在 PixelWeb 里出现在哪、检索练习、来源链接 |
-
-界面里任何出现过的术语都会带虚线下划线，点一下就是卡片。卡片底部的「📖 让 OpenCode 结合项目深入解释」会开一个**只读的教学 session**（自带教学系统提示、禁用写文件与 shell），结合你当前项目往深一层讲，并以一道检索练习收尾——这部分教学法参考了 Matt Pocock 的 [`teach` skill](https://github.com/mattpocock/skills)。
-
-## 截图
-
-| 时间线 + 概念卡片 | 架构依赖图 |
-| --- | --- |
-| ![timeline](docs/screenshots/timeline-card.png) | ![arch](docs/screenshots/arch.png) |
-
-| Git 分支图 | 知识库 |
-| --- | --- |
-| ![git](docs/screenshots/git.png) | ![knowledge](docs/screenshots/knowledge.png) |
+| ![Git 分支图](docs/screenshots/git.png) | ![模块依赖图](docs/screenshots/arch.png) | ![知识库](docs/screenshots/knowledge.png) |
 
 ## 快速开始
 
-```bash
-# 1. 在你的项目里启动 opencode 的 HTTP 服务（默认 4096 端口）
-cd ~/your-project && opencode serve
+需要 Node.js 20.19 或更高版本、git，以及已安装的 [OpenCode](https://opencode.ai/docs/)。
 
-# 2. 启动 PixelWeb（另一个终端）
-git clone <this repo> pixelweb && cd pixelweb
+在要观察的项目里启动 OpenCode 的 HTTP 服务（默认端口 4096）：
+
+```bash
+cd ~/your-project
+opencode serve
+```
+
+另开一个终端，构建并启动 PixelWeb：
+
+```bash
+git clone https://github.com/msanuk/Pixelweb.git
+cd Pixelweb
 npm install
 npm run build
 node packages/server/dist/index.js --project ~/your-project
-# → http://127.0.0.1:7420
 ```
 
-常用参数（也可用同名环境变量 `PIXELWEB_*`）：
+然后打开 <http://127.0.0.1:7420>。
 
-```
---opencode <url>           opencode serve 地址   (默认 http://127.0.0.1:4096)
---opencode-username <u>    opencode 的用户名     (默认 opencode，同 OPENCODE_SERVER_USERNAME)
---opencode-password <pw>   如果 opencode 设置了 OPENCODE_SERVER_PASSWORD
---project <dir>            要可视化的项目目录   (默认当前目录)
---port <n>                 PixelWeb 端口        (默认 7420)
---host <addr>              PixelWeb 监听地址     (默认 127.0.0.1)
---password <pw>            访问 PixelWeb 需要的密码 (同 PIXELWEB_PASSWORD)
---verbose                  打印每个 opencode 事件
---no-title-date            不给会话标题加日期前缀 (同 PIXELWEB_TITLE_DATE=0)
-```
+## 配置
 
-OpenCode 的地址、用户名和密码也能在运行中改：设置（⌘,）→ 连接，地址可以只填端口；连不上时顶栏的“OpenCode 未连接”旁边有“设置”入口，还能“立即重试”，不用等自动重连。界面里改的只在这次运行中有效，重启 PixelWeb 后回到上面的参数。
+每个选项都可以用命令行参数或环境变量设置，两者同时存在时以参数为准。
 
-### 会话命名
+| 参数 | 环境变量 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `--opencode <url>` | `PIXELWEB_OPENCODE_URL` | `http://127.0.0.1:4096` | `opencode serve` 的地址 |
+| `--opencode-username <name>` | `OPENCODE_SERVER_USERNAME` | `opencode` | OpenCode 的用户名 |
+| `--opencode-password <pw>` | `OPENCODE_SERVER_PASSWORD` | | OpenCode 设置了密码时填写 |
+| `--project <dir>` | `PIXELWEB_PROJECT` | 当前目录 | 启动时打开的项目 |
+| `--port <n>` | `PIXELWEB_PORT` | `7420` | 端口 |
+| `--host <addr>` | `PIXELWEB_HOST` | `127.0.0.1` | 监听地址 |
+| `--password <pw>` | `PIXELWEB_PASSWORD` | | 访问 PixelWeb 的密码 |
+| `--data-dir <dir>` | `PIXELWEB_DATA_DIR` | `~/.pixelweb` | 学习记录、插件 token 等数据的存放位置 |
+| `--verbose` | `PIXELWEB_VERBOSE=1` | | 打印收到的每个 OpenCode 事件 |
+| `--no-title-date` | `PIXELWEB_TITLE_DATE=0` | | 不给会话标题加日期前缀 |
 
-会话标题统一成 `yyyymmdd-动词对象`，只用中文，整个标题不超过 25 个字，例如 `20260928-修复登录跳转`。分两半做：
+OpenCode 的地址和账号可以在运行时修改：设置（<kbd>⌘</kbd> <kbd>,</kbd> / <kbd>Ctrl</kbd> <kbd>,</kbd>）→ 连接。在界面里切换的项目和连接只对本次运行有效，重启后恢复为启动参数。
 
-1. **OpenCode 起标题**：OpenCode 在第一条消息后用隐藏的 `title` agent 起一次标题，它的提示词可以换掉。把 [`docs/opencode-title-prompt.txt`](docs/opencode-title-prompt.txt) 放到服务器上，在 OpenCode 的配置（全局 `~/.config/opencode/opencode.json`，或项目里的 `opencode.json`）里加上：
+会话标题默认整理成 `yyyymmdd-动词对象` 的格式，比如 `20260928-修复登录跳转`。配置方法见 [docs/session-naming.md](docs/session-naming.md)。
 
-   ```json
-   {
-     "agent": {
-       "title": { "prompt": "{file:./title-prompt.txt}" }
-     }
-   }
-   ```
+## 部署
 
-   `{file:...}` 的相对路径相对于这个配置文件。想用便宜的模型起标题，可以再加 `"model": "provider/model"`。改完重启 `opencode serve`，之后新建的会话才生效。
-2. **PixelWeb 加日期**：`title` agent 看不到今天的日期，所以日期前缀由 PixelWeb 补：OpenCode 写入标题后，PixelWeb 马上按会话的创建日期改成 `yyyymmdd-…`，超出 25 个字的截掉。改名写回 OpenCode，终端里也能看到。时间线标题旁的铅笔图标（或双击标题）可以手动改名，同样会自动加日期。
-
-不会动的：子任务（OpenCode 用任务描述加 `(@agent subagent)` 命名）、教学会话、还没起标题的会话、已经带日期的标题。旧会话不会批量改名，下次有动静（比如继续对话）时才会改。PixelWeb 没运行时起的标题没有日期，之后它在 PixelWeb 运行时有动静了才补上。
-
-### 部署到服务器
-
-PixelWeb 要读取项目的 git 和源码，并把项目路径传给 OpenCode，所以它必须和 `opencode serve`、项目文件在**同一台机器**上。OpenCode 只需监听本机：
+PixelWeb 需要读取项目的源码和 git 仓库，所以要和 `opencode serve`、项目文件在同一台机器上运行。
 
 ```bash
-# 服务器上（Windows 路径同理，如 D:\code\proj）
-cd /path/to/project && opencode serve --port 4096
 node packages/server/dist/index.js --project /path/to/project --host 0.0.0.0 --password <访问密码>
 ```
 
-- PixelWeb 能替你给 agent 发 prompt、批准它执行 shell 命令。**不设 `--password` 就不要监听 127.0.0.1 以外的地址**，启动时也会给出警告。
-- 普通 HTTP 下密码和登录 cookie 是明文传输的。在不可信的网络上，请放到 HTTPS 反向代理后面，或者不开放端口、改用 SSH 隧道：`ssh -L 7420:127.0.0.1:7420 user@server`。
-- 浏览器只在 HTTPS 或 localhost 下允许系统通知。通过 `http://服务器IP:7420` 访问时，设置里的“提醒”只能在标签页标题上显示未读数；用 SSH 隧道访问 `http://localhost:7420` 就能收到系统通知。
-- 反向代理需要保留 `Host` 或传 `X-Forwarded-Host`：PixelWeb 会拒绝来源（Origin）与之不符的写请求和 WebSocket 连接。
-- `npm run dev` 依赖 shell 的 `&`，在 Windows 上请用 `npm run build` 加 `npm start`。
+> [!WARNING]
+> PixelWeb 能向 agent 发送指令、批准 shell 命令。监听 `127.0.0.1` 以外的地址时必须设置 `--password`，并通过 HTTPS 反向代理或 SSH 隧道访问。
 
-### 用 pm2 常驻
-
-上面两条命令关掉终端就停了。仓库自带 pm2 配置（`ecosystem.config.cjs`），把 `opencode serve` 和 PixelWeb 都交给 pm2：进程崩了会自动拉起，连续 10 次启动不到 10 秒就不再重试。
-
-```bash
-npm run pm2:start      # 先 build，再启动两个进程；已在运行就重启，并重新读取 .env
-npm run pm2:logs       # 看日志（~/.pm2/logs）
-npm run pm2:stop
-```
-
-配置写在仓库根目录的 `.env` 里（已被 .gitignore 忽略），shell 里已经设置的同名变量优先：
-
-```bash
-PIXELWEB_PROJECT=/path/to/project   # 两个进程的工作目录，也是 PixelWeb 启动时显示的项目；不设就是本仓库
-PIXELWEB_HOST=0.0.0.0
-PIXELWEB_PASSWORD=<访问密码>
-OPENCODE_PORT=4096                  # opencode serve 的端口，PixelWeb 自动连过去
-OPENCODE_HOSTNAME=127.0.0.1
-OPENCODE_SERVER_PASSWORD=<opencode 密码>   # 两边都会用到
-```
-
-- OpenCode 已经用别的方式在跑（比如桌面端）时，只启动 PixelWeb：`npx pm2 start ecosystem.config.cjs --only pixelweb`，再用 `PIXELWEB_OPENCODE_URL` 指过去。
-- 开机自启：macOS / Linux 上先执行 `npx pm2 startup`，照它打印的命令做，然后 `npx pm2 save`。Windows 上 pm2 做不了开机自启，需要另装 [pm2-installer](https://github.com/jessety/pm2-installer) 之类的服务包装。
-- 改了代码或 `git pull` 之后，再跑一次 `npm run pm2:start` 就会重新 build 并重启。
-
-### 云控制台向导（浏览器插件）
-
-在阿里云、AWS 等控制台里看不懂某个配置页时，用 Chrome / Edge 插件把这一页发给 PixelWeb：它在当前项目下开一个只读的 🧭 会话，结合项目代码告诉你每一项怎么填、要注意什么。回答显示在插件侧边栏里，PixelWeb 时间线里也能看到同一个会话。
-
-```bash
-npm run build --workspace=@pixelweb/extension   # 产物在 packages/extension/dist
-```
-
-1. Chrome 打开 `chrome://extensions`（Edge 是 `edge://extensions`），打开「开发者模式」，「加载已解压的扩展程序」，选 `packages/extension/dist`。
-2. PixelWeb 里打开 设置 → 浏览器插件，生成一个 token（只显示一次）。
-3. 点浏览器工具栏上的插件图标打开侧边栏，填 PixelWeb 地址和 token，点「连接」，按提示允许插件访问这个地址。
-4. 在控制台里打开看不懂的那一页，点「捕捉这一页」，看过要发的内容再发送。
-
-回答里的字段标签（f3 这样的）点一下，页面上就会标出那一项；术语点一下在 PixelWeb 里打开对应的知识卡片（VPC、安全组、AccessKey、按量付费这类云概念都有卡片）。只想问页面上的一块：先选中它，预览里勾「只发选中的部分」。
-
-阿里云页面上那些要鼠标悬停才显示的「?」说明，捕捉时会逐个悬停读出来；AWS 页面的帮助面板（没打开也算）会放在正文最前面。页面里嵌着插件没权限读的其他网站时，预览会列出来，点「允许读取并重新捕捉」。模型能看图时，预览里可以勾「附带截图」：截图没法隐藏密钥，所以默认不勾、每次手动选；Chrome 只允许截你刚通过右键菜单或工具栏图标打开插件的那个标签页。
-
-插件默认只读阿里云、AWS、华为云、Azure、GCP 控制台的页面，而且只在你点「捕捉」时读；别的网站在页面上点右键 →「用 PixelWeb 向导看这一页」，临时允许读这一页。密钥、密码类的值发送前就会被换成 `‹已隐藏›`，密码框从不读取。token 只能发起和查看向导会话，不能批准命令。设计见 [docs/cloud-guide.md](docs/cloud-guide.md)。
+反向代理、系统通知和用 pm2 常驻运行的说明见 [docs/deployment.md](docs/deployment.md)。
 
 ## 开发
 
 ```bash
 npm install
-npm run dev            # 同时启动后端 (7420, tsx watch) 与前端 (5173, vite, 代理 /api 与 /ws)
-npm run dev:mock       # 没有 opencode 时：一个假的 opencode serve（4096），带示例会话并会流式回复
+npm run dev          # 后端 :7420（tsx watch）+ 前端 :5173（Vite，代理 /api 和 /ws）
+npm run dev:mock     # 模拟的 opencode serve（:4096），带示例会话，没装 OpenCode 时用
 npm run typecheck
-npm test               # vitest：git 解析、依赖分析、知识卡片（每张卡片都会被解析校验）
+npm test
 ```
 
-## 架构
+`npm run dev` 用到了 shell 的 `&`，Windows 上请改用 `npm run build` 和 `npm start`。
 
 ```
 packages/
-  shared/    前后端共享的 TypeScript 类型（OpenCode 事件、Git 快照、依赖图、卡片、WS 协议），外加两边共用的 token 统计（steps.js）
-  server/    Fastify
-    opencode/client.ts   ← 唯一与 OpenCode 打交道的适配器：REST + /global/event SSE（自动重连）
-    git/service.ts       ← git log/for-each-ref/status 解析 + chokidar 监听 .git
-    analysis/deps.ts     ← import 图提取（TS/JS/Python，正则级，够教学用）
-    knowledge/           ← 卡片加载、搜索、学习记录、教学 prompt
-    ws.ts / index.ts     ← WebSocket 广播 + /api 路由
-  web/       React + Vite；单一 store，事件 reducer 把 SSE 事件合并进消息树
-  extension/ 云控制台向导的浏览器插件（Chrome MV3）：页面提取、侧边栏；回答用 web 的 Markdown 渲染
-knowledge/   知识卡片（Markdown + frontmatter），见 knowledge/README.md
+  shared/      前后端共用的类型和 WebSocket 协议
+  server/      Fastify 服务：连接 OpenCode、读取 git、分析依赖，提供 /api 和 /ws
+  web/         React 前端
+  extension/   云控制台向导的 Chrome 插件
+knowledge/     知识卡片
+docs/          设计文档和部署说明
 ```
 
-数据流：`opencode serve` ─SSE─▶ `server` ─WebSocket─▶ `web`；浏览器只与 PixelWeb 同源通信，避免 CORS。
+数据流是 `opencode serve` → SSE → `server` → WebSocket → `web`。浏览器只访问 PixelWeb 自己的地址，所有 OpenCode 请求都由服务端代理。各模块的细节写在 [CLAUDE.md](CLAUDE.md) 里。
 
-学习记录保存在 `~/.pixelweb/learning.json`；自定义卡片可放 `~/.pixelweb/knowledge/` 或 `<项目>/.pixelweb/knowledge/`。
+### 添加知识卡片
+
+卡片是带 frontmatter 的 Markdown 文件，格式见 [knowledge/README.md](knowledge/README.md)。`npm test` 会解析并校验每一张卡片。不想提交到仓库的卡片可以放在 `~/.pixelweb/knowledge/` 或 `<项目>/.pixelweb/knowledge/`，同 id 的卡片后加载的生效。
 
 ## 路线图
 
-- [ ] 更多 agent 适配器（Claude Code、Codex CLI）——只需实现 `opencode/client.ts` 同样的事件形状
-- [ ] 基于 tree-sitter 的精确依赖分析、调用图
-- [ ] 按学习记录推送「今天该复习的卡片」（间隔重复）
-- [ ] 把 PixelWeb 暴露为 MCP server，让 agent 主动向你「讲解它刚做的事」
+- [ ] 支持 Claude Code、Codex CLI 等其他 agent（实现和 `opencode/client.ts` 相同的事件接口）
+- [ ] 用 tree-sitter 做更准确的依赖分析，加上调用图
+- [ ] 根据学习记录安排卡片复习（间隔重复）
+- [ ] 以 MCP server 的形式提供 PixelWeb，让 agent 主动讲解它刚做过的改动
+
+## 致谢
+
+- [OpenCode](https://opencode.ai)
+- 讲解功能的教学方法参考了 Matt Pocock 的 [teach skill](https://github.com/mattpocock/skills)
