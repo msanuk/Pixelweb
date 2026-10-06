@@ -1,5 +1,5 @@
 // pm2 process file: `npm run pm2:start` builds, then starts (or reloads) both processes.
-// Settings come from the shell or from a `.env` next to this file; see README "用 pm2 常驻".
+// Settings come from the shell or from a `.env` next to this file; see docs/deployment.md "用 pm2 常驻".
 // Only PixelWeb (e.g. OpenCode runs elsewhere): `npx pm2 start ecosystem.config.cjs --only pixelweb`.
 const fs = require('node:fs');
 const path = require('node:path');
